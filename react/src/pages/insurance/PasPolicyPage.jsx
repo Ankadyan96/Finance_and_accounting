@@ -1,0 +1,2167 @@
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useFinance } from '../../context/FinanceContext';
+import { useAuth } from '../../context/AuthContext';
+import { highlightJson } from '../../utils/jsonHighlight';
+import { api } from '../../services/api';
+import './pas-policy.css';
+
+// Preset-driven financial defaults, keyed the same as the LOAD EVENT PRESET
+// dropdown's option values. Shared by the dropdown's onChange handler and by
+// the initial-state derivation below (so a deep link like
+// /pas-policy?preset=bordereau_ingested arrives pre-configured without a
+// setState-in-effect to sync it after the fact).
+const PRESET_DEFAULTS = {
+  policy_bound: { evtType: 'POLICY_BINDING_INVOICED', premium: '33257', taxAndFees: '3503', commission: '2500', paymentAmount: '0' },
+  payment_received: { evtType: 'PAYMENT_RECEIVED', premium: '33257', taxAndFees: '3503', commission: '2500', paymentAmount: '39260' },
+  payment_overpaid: { evtType: 'PAYMENT_OVERPAID', premium: '33257', taxAndFees: '3503', commission: '2500', paymentAmount: '40500' },
+  payment_underpaid: { evtType: 'PAYMENT_UNDERPAID', premium: '33257', taxAndFees: '3503', commission: '2500', paymentAmount: '35000' },
+  broker_settlement: { evtType: 'BROKER_SETTLEMENT_COMPLETED', premium: '33257', taxAndFees: '3503', commission: '2500', paymentAmount: '36760' },
+  bordereau_ingested: { evtType: 'BORDEREAU_INGESTED', premium: '33257', taxAndFees: '0', commission: '3500', paymentAmount: '0' },
+  carrier_payment_completed: { evtType: 'CARRIER_PAYMENT_COMPLETED', premium: '33257', taxAndFees: '0', commission: '3500', paymentAmount: '29757' },
+  premium_adjusted: { evtType: 'PREMIUM_ADJUSTED', premium: '1500', taxAndFees: '200', commission: '120', paymentAmount: '0' },
+  policy_cancelled: { evtType: 'POLICY_CANCELLED', premium: '-16128', taxAndFees: '-3501', commission: '-1250', paymentAmount: '0' }
+};
+
+// Shared by both the LOAD EVENT PRESET dropdown's labels (so the menu itself
+// shows the real amount Stage 3/5 will post) and handleApplyPreset's form
+// pre-fill (so the JSON payload matches what the menu promised) — a single
+// source of truth for the cash shortfall a Stage 2 Pay Short leaves behind.
+// That same dollar gap rides down the whole settlement chain: the Broker
+// forwards $4,260 less to the MGA (Stage 3), so the MGA in turn has $4,260
+// less to forward to the Carrier (Stage 5) — nobody downstream ever collects
+// more than what's actually moved up from the insured. Returns 0 when Stage
+// 2 Pay Short hasn't happened (or was matched/overpaid), meaning Stage 3/5
+// stay at their full net amounts.
+const getStage2CashShortfall = (events, policyNumber) => {
+  const shortEvt = events.find(e =>
+    e.policy?.policy_number === policyNumber &&
+    e.event_type === 'PAYMENT_UNDERPAID' &&
+    e.status === 'POSTED'
+  );
+  if (!shortEvt) return 0;
+  return Math.max((shortEvt.financials.total_premium ?? 0) - (shortEvt.financials.payment_amount ?? 0), 0);
+};
+
+// Known parties for the injector form's Broker/Carrier/MGA fields, so users
+// pick from the same demo entities used across the DBA books (Commission
+// Engine, Flow Simulator) instead of free-typing a name that won't match.
+const BROKER_OPTIONS = ['Arora & Sons', 'Coastal Risk Advisors', 'Pinecrest Insurance Services', 'Links Insurance Agency'];
+const CARRIER_OPTIONS = ['Vikram & Sons', 'Granite Peak Insurance Co.'];
+const MGA_OPTIONS = ['Vikas & Co', 'Meridian Program Managers'];
+
+// Which party dropdown(s) are relevant to each stage, matching who
+// generateRulesEngineGroups actually posts JE lines for below — e.g. Stage 2
+// only touches the Broker's book (Ayushi pays Broker), Stage 3 only settles
+// the Broker -> MGA leg, so there's no reason to show a Carrier picker there.
+// Stage 1 establishes the whole chain up front, so all three stay visible.
+const PRESET_VISIBLE_PARTIES = {
+  policy_bound: ['broker', 'mga', 'carrier'],
+  payment_received: ['broker'],
+  payment_overpaid: ['broker'],
+  payment_underpaid: ['broker'],
+  broker_settlement: ['mga'],
+  bordereau_ingested: ['carrier'],
+  carrier_payment_completed: ['carrier']
+};
+
+// Which LOAD EVENT PRESET stages apply to each logged-in role — mirrors
+// which entity's book generateRulesEngineGroups actually posts to (or
+// raises an AP bill against) for that event type. A Broker user never
+// touches the Carrier's Bordereau Ingestion, so there's no reason for that
+// stage to appear in their picker, and vice versa. Roles without an entry
+// here (owner, insured, reinsurance-analyst, etc.) see every stage.
+const ROLE_VISIBLE_PRESETS = {
+  broker: ['policy_bound', 'payment_received', 'payment_overpaid', 'payment_underpaid', 'broker_settlement'],
+  mga: ['policy_bound', 'broker_settlement', 'bordereau_ingested', 'carrier_payment_completed'],
+  carrier: ['bordereau_ingested', 'carrier_payment_completed']
+};
+
+// Backs the LOAD EVENT PRESET <select> — order here is the display order.
+// ROLE_VISIBLE_PRESETS filters this list per logged-in role; ALL_PRESET_KEYS
+// (its key order) is also the fallback for roles with no entry there, and
+// picks a replacement when the active role's list drops the current preset.
+//
+// Stage 2 has three mutually-exclusive variants (Match / Extra Pay / Pay
+// Short) grouped together right here, each carrying its own event_type
+// (PAYMENT_RECEIVED / PAYMENT_OVERPAID / PAYMENT_UNDERPAID) so injecting one
+// doesn't lock out the other two on the same policy — see generateRulesEngineGroups.
+// Whichever one you pick, Stage 3 onward (Broker pays MGA, Bordereau, Carrier
+// payment) is unaffected and still available to continue the chain, since the
+// AP bill the Broker owes the MGA is always the billed net premium, not
+// whatever the insured actually paid in.
+// Ratios preserved from the built-in POL-V8NHT demo (its own Stage 2
+// Extra-Pay/Pay-Short amounts and the fixed Stage 4/5 MGA-override relative
+// to Stage 1's Broker commission) — applied on top of whichever policy is
+// actually loaded so amounts stay proportionate to that policy's own
+// premium, instead of the form always snapping back to V8NHT's fixed
+// dollar figures on every stage change. See computeStageAmounts.
+const OVERPAY_RATIO = 40500 / 39260;
+const UNDERPAY_RATIO = 35000 / 39260;
+const MGA_OVERRIDE_RATIO = 3500 / 2500;
+
+// Derives a lifecycle stage's premium/tax/commission/payment fields from
+// `base` — the currently loaded policy's own Stage 1 (POLICY_BINDING_INVOICED)
+// figures (see policyBase state) — instead of a fixed table keyed only to
+// POL-V8NHT. `base` stays fixed while hopping between stages of the same
+// policy, so switching from Stage 1 to Stage 2 and back no longer
+// overwrites one policy's numbers with another's.
+function computeStageAmounts(stageKey, base) {
+  const premium = base.premium;
+  const taxAndFees = base.taxAndFees;
+  const commission = base.commission;
+  const total = premium + taxAndFees + commission;
+  const netToMga = total - commission;
+  const mgaOverride = Math.round(commission * MGA_OVERRIDE_RATIO);
+  const netToCarrier = netToMga - mgaOverride - taxAndFees;
+
+  switch (stageKey) {
+    case 'payment_received':
+      return { evtType: 'PAYMENT_RECEIVED', premium, taxAndFees, commission, paymentAmount: Math.round(total) };
+    case 'payment_overpaid':
+      return { evtType: 'PAYMENT_OVERPAID', premium, taxAndFees, commission, paymentAmount: Math.round(total * OVERPAY_RATIO) };
+    case 'payment_underpaid':
+      return { evtType: 'PAYMENT_UNDERPAID', premium, taxAndFees, commission, paymentAmount: Math.round(total * UNDERPAY_RATIO) };
+    case 'broker_settlement':
+      return { evtType: 'BROKER_SETTLEMENT_COMPLETED', premium, taxAndFees, commission, paymentAmount: Math.round(netToMga) };
+    case 'bordereau_ingested':
+      return { evtType: 'BORDEREAU_INGESTED', premium, taxAndFees: 0, commission: mgaOverride, paymentAmount: 0 };
+    case 'carrier_payment_completed':
+      return { evtType: 'CARRIER_PAYMENT_COMPLETED', premium, taxAndFees: 0, commission: mgaOverride, paymentAmount: Math.round(netToCarrier) };
+    case 'policy_bound':
+    default:
+      return { evtType: 'POLICY_BINDING_INVOICED', premium, taxAndFees, commission, paymentAmount: 0 };
+  }
+}
+
+const PRESET_STAGE_KEYS = ['policy_bound', 'payment_received', 'payment_overpaid', 'payment_underpaid', 'broker_settlement', 'bordereau_ingested', 'carrier_payment_completed'];
+
+// Builds the LOAD EVENT PRESET dropdown's option labels from whichever
+// policy is currently loaded (`base` = policyBase, `policyNumber` = polNum,
+// `insured` = insuredName) instead of hardcoding POL-V8NHT's own numbers —
+// so the menu always advertises the amount its own stage will actually post.
+function buildPresetOptions(base, policyNumber, insured) {
+  const premium = base.premium;
+  const taxAndFees = base.taxAndFees;
+  const commission = base.commission;
+  const total = premium + taxAndFees + commission;
+  const netToMga = total - commission;
+  const mgaOverride = Math.round(commission * MGA_OVERRIDE_RATIO);
+  const netToCarrier = netToMga - mgaOverride - taxAndFees;
+  const overpay = Math.round(total * OVERPAY_RATIO);
+  const underpay = Math.round(total * UNDERPAY_RATIO);
+  const gwp = Math.round(premium + commission);
+  const fmt = (n) => `$${Math.round(n).toLocaleString()}`;
+  const who = insured || 'Insured';
+
+  return [
+    { value: 'policy_bound', label: `Stage 1: POLICY_BINDING_INVOICED (${policyNumber} · ${fmt(total)})` },
+    { value: 'payment_received', label: `Stage 2 (Match): PAYMENT_RECEIVED — ${who} pays Broker exactly · ${fmt(total)}` },
+    { value: 'payment_overpaid', label: `Stage 2 (Extra Pay): PAYMENT_OVERPAID — ${who} pays Broker ${fmt(overpay)} vs ${fmt(total)} Billed` },
+    { value: 'payment_underpaid', label: `Stage 2 (Pay Short): PAYMENT_UNDERPAID — ${who} pays Broker ${fmt(underpay)} vs ${fmt(total)} Billed` },
+    { value: 'broker_settlement', label: `Stage 3: BROKER_SETTLEMENT_COMPLETED (Broker pays MGA · ${fmt(netToMga)})` },
+    { value: 'bordereau_ingested', label: `Stage 4: BORDEREAU_INGESTED (Carrier Ingestion · ${fmt(gwp)} GWP)` },
+    { value: 'carrier_payment_completed', label: `Stage 5: CARRIER_PAYMENT_COMPLETED (MGA pays Carrier · ${fmt(netToCarrier)})` }
+  ];
+}
+const ALL_PRESET_KEYS = PRESET_STAGE_KEYS;
+
+const INITIAL_EVENTS = [
+  {
+    event_id: 'EVT-108492',
+    event_type: 'POLICY_BINDING_INVOICED',
+    transaction_id: 'TXN-904128',
+    invoice_number: 'INV-V8NHT-1',
+    policy: {
+      policy_id: 'POL-V8NHT',
+      policy_number: 'POL-V8NHT',
+      lob: 'Commercial Trucking',
+      state: 'TX'
+    },
+    parties: {
+      insured_name: 'Ayushi',
+      insured_id: 'INS-AYUSHI',
+      carrier_name: 'Vikram & Sons',
+      carrier_id: 'CAR-Vikram & Sons',
+      mga_name: 'Vikas & Co',
+      mga_id: 'MGA-Vikas & Co',
+      producer: 'Arora & Sons'
+    },
+    financials: {
+      premium: 33257,
+      tax_and_fees: 3503,
+      total_premium: 39260,
+      broker_commission: 2500,
+      payment_amount: 0,
+      currency: 'USD'
+    },
+    dates: {
+      effective_date: '2026-08-20',
+      transaction_date: '2026-08-20'
+    },
+    source_system: 'PAS',
+    status: 'POSTED',
+    timestamp: '2026-08-20T11:42:15.000Z',
+    errors: [],
+    jeNumber: 'JE-2026-089',
+    jeLines: [
+      { acct: '1100', desc: 'Premium Receivable — Ayushi (INV-V8NHT-1)', debit: 39260, credit: 0 },
+      { acct: '2200', desc: 'Net Premium Payable — Vikas & Co', debit: 0, credit: 36760 },
+      { acct: '5100', desc: 'Producer / Broker Commission Revenue', debit: 0, credit: 2500 }
+    ]
+  }
+];
+
+const INITIAL_POLICIES = [
+  {
+    number: 'POL-56IEM',
+    name: 'Ayushi',
+    date: '2026-08-20',
+    premium: 34866,
+    commissionPct: 8,
+    status: 'BOUND',
+    brokerName: 'Arora & Sons',
+    mgaName: 'Vikas & Co',
+    carrierName: 'Vikram & Sons',
+    invoiceNumber: 'INV-56IEM-1',
+    lob: 'Commercial Trucking',
+    state: 'TX',
+    base: { premium: 28790, taxAndFees: 3773, commission: 2303 }
+  },
+  {
+    number: 'POL-V8NHT',
+    name: 'Ayushi',
+    date: '2026-08-20',
+    premium: 39260,
+    commissionPct: 8,
+    status: 'BOUND',
+    brokerName: 'Arora & Sons',
+    mgaName: 'Vikas & Co',
+    carrierName: 'Vikram & Sons',
+    invoiceNumber: 'INV-V8NHT-1',
+    lob: 'Commercial Trucking',
+    state: 'TX',
+    base: { premium: 33257, taxAndFees: 3503, commission: 2500 }
+  },
+  {
+    number: 'POL-40291',
+    name: 'Apex Freight Solutions',
+    date: '2026-08-25',
+    premium: 14850,
+    commissionPct: 10,
+    status: 'BOUND',
+    brokerName: 'Arora & Sons',
+    mgaName: 'Vikas & Co',
+    carrierName: 'Vikram & Sons'
+  }
+];
+
+function generateUUID(prefix = 'EVT') {
+  return prefix + '-' + Math.floor(100000 + Math.random() * 900000);
+}
+
+export function PasPolicyPage() {
+  const { postJournalEntry, addJournalEntry, addApInvoice, addArInvoice, markArInvoicePaid, markApInvoicePaid, accounts } = useFinance();
+  const { currentUser } = useAuth();
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState('injector');
+  const [events, setEvents] = useState(INITIAL_EVENTS);
+  const [policies, setPolicies] = useState(INITIAL_POLICIES);
+
+  // Event types already injected for this policy — unlike `events` (which
+  // also carries INITIAL_EVENTS' static "Stage 1 already happened" seed row
+  // so the demo doesn't start on an empty log), this starts empty and is
+  // seeded from MongoDB on mount (see the fetch effect below). Backing the
+  // lockout with the persisted record — not just in-session state — is what
+  // keeps a stage locked across a page refresh instead of allowing a repeat
+  // injection the moment the tab reloads. The static seed row is never
+  // added here, so it alone never permanently disables Stage 1 — including
+  // right after a database reset, which remounts this page with a clean
+  // slate and an empty /api/pas-events response.
+  const [sessionInjectedTypes, setSessionInjectedTypes] = useState(() => new Set());
+  const [selectedEventModal, setSelectedEventModal] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  // Injector Form Fields — the initial preset is read once from ?preset=
+  // (e.g. MGA Operations' "+ Generate & Submit Bordereau" deep-links here
+  // with ?preset=bordereau_ingested) so a deep link arrives pre-configured
+  // without needing an effect to sync it in after the fact. A plain visit
+  // (no ?preset=) opens on POL-56IEM — the default policy — while an
+  // incoming deep link keeps opening on POL-V8NHT, since that's the exact
+  // scenario MGA Operations' "+ Generate & Submit Bordereau" button and its
+  // own downstream numbers are built around.
+  const hasPresetParam = new URLSearchParams(location.search).has('preset');
+  const DEFAULT_IDENTITY = {
+    polNum: 'POL-56IEM', invNum: 'INV-56IEM-1', lob: 'Commercial Trucking', stateCode: 'TX',
+    insuredName: 'Ayushi', brokerName: 'Arora & Sons', carrierName: 'Vikram & Sons', mgaName: 'Vikas & Co',
+    base: { premium: 28790, taxAndFees: 3773, commission: 2303 }
+  };
+  const DEEP_LINK_IDENTITY = {
+    polNum: 'POL-V8NHT', invNum: 'INV-V8NHT-1', lob: 'Commercial Trucking', stateCode: 'TX',
+    insuredName: 'Ayushi', brokerName: 'Arora & Sons', carrierName: 'Vikram & Sons', mgaName: 'Vikas & Co',
+    base: { premium: 33257, taxAndFees: 3503, commission: 2500 }
+  };
+  const initialIdentity = hasPresetParam ? DEEP_LINK_IDENTITY : DEFAULT_IDENTITY;
+  const initialPresetKey = new URLSearchParams(location.search).get('preset') || 'policy_bound';
+  const initialPresetValues = computeStageAmounts(initialPresetKey, initialIdentity.base);
+  const [preset, setPreset] = useState(initialPresetKey);
+  const visibleParties = PRESET_VISIBLE_PARTIES[preset] || ['broker', 'mga', 'carrier'];
+  const visiblePresets = ROLE_VISIBLE_PRESETS[currentUser?.role] || ALL_PRESET_KEYS;
+  const [evtId, setEvtId] = useState(generateUUID('EVT'));
+  const [txnId, setTxnId] = useState(generateUUID('TXN'));
+  const [evtType, setEvtType] = useState(initialPresetValues.evtType);
+  const [polNum, setPolNum] = useState(initialIdentity.polNum);
+  const [invNum, setInvNum] = useState(initialIdentity.invNum);
+  const [lob, setLob] = useState(initialIdentity.lob);
+  const [stateCode, setStateCode] = useState(initialIdentity.stateCode);
+  const [insuredName, setInsuredName] = useState(initialIdentity.insuredName);
+  const [brokerName, setBrokerName] = useState(initialIdentity.brokerName);
+  const [carrierName, setCarrierName] = useState(initialIdentity.carrierName);
+  const [mgaName, setMgaName] = useState(initialIdentity.mgaName);
+  const [premium, setPremium] = useState(String(initialPresetValues.premium));
+  const [taxAndFees, setTaxAndFees] = useState(String(initialPresetValues.taxAndFees));
+  const [commission, setCommission] = useState(String(initialPresetValues.commission));
+  const [paymentAmount, setPaymentAmount] = useState(String(initialPresetValues.paymentAmount));
+  // The active policy's own Stage 1 (POLICY_BINDING_INVOICED) figures —
+  // premium/taxAndFees/commission above compute every other stage relative
+  // to this (see computeStageAmounts), so it's set once per policy load
+  // (handleLoadFromRegister) and left untouched by handleApplyPreset.
+  const [policyBase, setPolicyBase] = useState(initialIdentity.base);
+  const [dateTx, setDateTx] = useState('2026-08-20');
+  const [dateEff, setDateEff] = useState('2026-08-20');
+
+  // Load previously-injected events from MongoDB so the "Already Injected"
+  // lockout (sessionInjectedTypes) reflects what's actually been posted
+  // rather than resetting on every page refresh — this is the fix for
+  // stages becoming re-injectable after a reload. Fetched records are
+  // merged ahead of the static INITIAL_EVENTS seed (deduped by event_id) so
+  // the Intake Event Log also survives a refresh.
+  //
+  // Also re-run on a 'veridex:pas-events-reset' event — dispatched by
+  // Header/ClearAllPage after a Reset Data / DB reseed actually clears the
+  // PasEvent collection server-side — so this page's own in-memory state
+  // (fetched once at mount, before that reset happened) doesn't keep
+  // showing stale "Already Injected" locks for events that no longer exist.
+  useEffect(() => {
+    const loadPersistedPasEvents = () => {
+      setEvents(INITIAL_EVENTS);
+      setSessionInjectedTypes(new Set());
+      api.getPasEvents()
+        .then((persisted) => {
+          if (!Array.isArray(persisted) || persisted.length === 0) return;
+          setEvents(prev => {
+            const seenIds = new Set(persisted.map(e => e.event_id));
+            return [...persisted, ...prev.filter(e => !seenIds.has(e.event_id))];
+          });
+          setSessionInjectedTypes(prev => {
+            const next = new Set(prev);
+            persisted.forEach(e => {
+              if (e.status === 'POSTED') next.add(e.event_type);
+            });
+            return next;
+          });
+        })
+        .catch(err => console.warn('[Atlas PAS Event Fetch]:', err.message));
+    };
+
+    loadPersistedPasEvents();
+    window.addEventListener('veridex:pas-events-reset', loadPersistedPasEvents);
+    return () => window.removeEventListener('veridex:pas-events-reset', loadPersistedPasEvents);
+  }, []);
+
+  // Load persisted policies (uploaded via "Upload Policy JSON", or any
+  // built-in demo policy whose status has since been synced by an
+  // injection — see syncPolicyRegister) so the Policies Register survives a
+  // page refresh instead of resetting to just INITIAL_POLICIES. Merged in
+  // ahead of the static seed, deduped by policy number — persisted status
+  // always wins (that's the point), but display fields (name/premium/
+  // brokerName/etc.) fall back to the local seed value when the persisted
+  // record doesn't have one, so an upsert-created record that only ever
+  // had its status set (never a full POST) can't blank those out.
+  //
+  // Also re-run on a 'veridex:data-reset' event — dispatched by Header's
+  // Reset Data action once the server has actually cleared the Policy
+  // collection — so this page's in-memory register (fetched once at mount,
+  // before that reset happened) drops back to INITIAL_POLICIES instead of
+  // keeping stale statuses like "FULLY SETTLED" around forever.
+  useEffect(() => {
+    const loadPersistedPolicies = () => {
+      setPolicies(INITIAL_POLICIES);
+      api.getPolicies()
+        .then((persisted) => {
+          if (!Array.isArray(persisted) || persisted.length === 0) return;
+          setPolicies(prev => {
+            const byNumber = new Map(persisted.map(p => [p.number, p]));
+            const merged = prev.map(p => {
+              const found = byNumber.get(p.number);
+              if (!found) return p;
+              return {
+                ...p,
+                ...found,
+                name: found.name || p.name,
+                date: found.date || p.date,
+                premium: found.premium || p.premium,
+                brokerName: found.brokerName || p.brokerName,
+                mgaName: found.mgaName || p.mgaName,
+                carrierName: found.carrierName || p.carrierName
+              };
+            });
+            const newOnes = persisted.filter(p => !prev.some(existing => existing.number === p.number) && p.name);
+            return [...newOnes, ...merged];
+          });
+        })
+        .catch(err => console.warn('[Atlas Policy Fetch]:', err.message));
+    };
+
+    loadPersistedPolicies();
+    window.addEventListener('veridex:data-reset', loadPersistedPolicies);
+    return () => window.removeEventListener('veridex:data-reset', loadPersistedPolicies);
+  }, []);
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // Preset Selection Handler
+  const handleApplyPreset = (val) => {
+    setPreset(val);
+    const todayStr = '2026-08-20';
+    setEvtId(generateUUID('EVT'));
+    setTxnId(generateUUID('TXN'));
+    setDateTx(todayStr);
+    setDateEff(todayStr);
+    // Policy identity (policy/invoice number, insured, broker, carrier,
+    // MGA, LOB, state) is deliberately left untouched here — it belongs to
+    // whichever policy is currently loaded (see handleLoadFromRegister),
+    // and switching lifecycle stages must not silently snap it back to the
+    // built-in POL-V8NHT demo identity.
+
+    const stageAmounts = computeStageAmounts(val, policyBase);
+    setEvtType(stageAmounts.evtType);
+    setPremium(String(stageAmounts.premium));
+    setTaxAndFees(String(stageAmounts.taxAndFees));
+    setCommission(String(stageAmounts.commission));
+
+    // Stage 3 (Broker pays MGA) normally forwards the full net premium
+    // regardless of what Stage 2 actually collected — but if the insured
+    // came up short (Stage 2 Pay Short / PAYMENT_UNDERPAID), the Broker
+    // never actually holds that much cash to forward. Pre-fill the
+    // settlement with only what's left after that shortfall, so picking
+    // Stage 3 right after Pay Short reflects real available cash instead of
+    // silently assuming the full amount showed up. Extra Pay doesn't need
+    // this — the overage there is booked straight to the insured's credit
+    // balance (see PAYMENT_OVERPAID above), not routed toward the MGA.
+    if (val === 'broker_settlement') {
+      const shortfall = getStage2CashShortfall(events, polNum);
+      const fullNetToMga = stageAmounts.paymentAmount;
+      const adjustedNetToMga = Math.max(fullNetToMga - shortfall, 0);
+      setPaymentAmount(String(adjustedNetToMga));
+      if (shortfall > 0) {
+        showToast(`Broker Settlement pre-filled at $${adjustedNetToMga.toLocaleString()} (reduced from $${fullNetToMga.toLocaleString()}) — Stage 2 Pay Short left a $${shortfall.toLocaleString()} cash shortfall.`, 'info');
+      }
+    } else if (val === 'carrier_payment_completed') {
+      // Same cash shortfall, one more hop down the chain — the MGA only
+      // ever has what the Broker actually forwarded in Stage 3, so it can't
+      // remit the full amount to the Carrier either. Stage 4 (Bordereau)
+      // is deliberately left alone here — that's the Carrier's fixed GWP
+      // recognition and AP-bill obligation, unaffected by anyone's cash flow.
+      const shortfall = getStage2CashShortfall(events, polNum);
+      const fullNetToCarrier = stageAmounts.paymentAmount;
+      const adjustedNetToCarrier = Math.max(fullNetToCarrier - shortfall, 0);
+      setPaymentAmount(String(adjustedNetToCarrier));
+      if (shortfall > 0) {
+        showToast(`Carrier Payment pre-filled at $${adjustedNetToCarrier.toLocaleString()} (reduced from $${fullNetToCarrier.toLocaleString()}) — the Stage 2 shortfall carries through to what the MGA can remit.`, 'info');
+      }
+    } else {
+      setPaymentAmount(String(stageAmounts.paymentAmount));
+    }
+  };
+
+  // If the active role's picker no longer includes the currently-loaded
+  // stage — e.g. switching from Broker to Carrier while Stage 2 is loaded —
+  // jump to that role's first relevant stage instead of leaving an event
+  // type selected that this role never touches.
+  useEffect(() => {
+    if (!visiblePresets.includes(preset)) {
+      handleApplyPreset(visiblePresets[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.role]);
+
+  // Live computed payload object
+  const currentPayload = useMemo(() => {
+    const prem = parseFloat(premium) || 0;
+    const tax = parseFloat(taxAndFees) || 0;
+    const comm = parseFloat(commission) || 0;
+    const pay = parseFloat(paymentAmount) || 0;
+    const total = prem + tax + comm;
+
+    return {
+      event_id: evtId,
+      event_type: evtType,
+      transaction_id: txnId,
+      invoice_number: invNum,
+      policy: {
+        policy_id: polNum,
+        policy_number: polNum,
+        lob: lob,
+        state: stateCode
+      },
+      parties: {
+        insured_name: insuredName,
+        insured_id: 'INS-' + (insuredName || '').toUpperCase(),
+        carrier_name: carrierName,
+        carrier_id: 'CAR-' + (carrierName || '').toUpperCase(),
+        mga_name: mgaName,
+        mga_id: 'MGA-' + (mgaName || '').toUpperCase(),
+        producer: brokerName
+      },
+      financials: {
+        premium: prem,
+        tax_and_fees: tax,
+        total_premium: total,
+        broker_commission: comm,
+        payment_amount: pay,
+        currency: 'USD'
+      },
+      dates: {
+        effective_date: dateEff,
+        transaction_date: dateTx
+      },
+      source_system: 'PAS'
+    };
+  }, [
+    evtId,
+    evtType,
+    txnId,
+    invNum,
+    polNum,
+    lob,
+    stateCode,
+    insuredName,
+    carrierName,
+    mgaName,
+    brokerName,
+    premium,
+    taxAndFees,
+    commission,
+    paymentAmount,
+    dateEff,
+    dateTx
+  ]);
+
+  // Section 10 Validations
+  const validateEvent = (evt) => {
+    const errors = [];
+    if (!evt.event_id) errors.push('Event ID is missing');
+    if (!evt.transaction_id) errors.push('Transaction ID is missing');
+    if (!evt.policy || !evt.policy.policy_number) errors.push('Policy Number is missing');
+
+    const isDup = events.some(
+      e => e.status === 'POSTED' && (e.event_id === evt.event_id || e.transaction_id === evt.transaction_id)
+    );
+    if (isDup) errors.push('Duplicate check failed: Event/Transaction ID already exists in Posted GL');
+
+    if (evt.event_type !== 'POLICY_CANCELLED' && evt.event_type !== 'PREMIUM_REFUNDED') {
+      if (evt.financials.premium < 0) errors.push('Premium amount must be positive');
+      if (evt.financials.tax_and_fees < 0) errors.push('Tax & Fees must be positive');
+      if (evt.financials.broker_commission < 0) errors.push('Commission must be positive');
+    } else {
+      if (evt.financials.premium > 0) errors.push('Refund Premium must be negative or zero');
+    }
+
+    if (!evt.dates.transaction_date || isNaN(Date.parse(evt.dates.transaction_date))) {
+      errors.push('Transaction Date is invalid');
+    }
+
+    if (!evt.parties.insured_name) errors.push('Insured party name is missing');
+    if (!evt.parties.carrier_name) errors.push('Carrier party name is missing');
+    if (!evt.parties.mga_name) errors.push('MGA party name is missing');
+
+    return errors;
+  };
+
+  // Canonical entity identities for the three DBA books — matches
+  // finance-and-accounting-main/README.md Section 4.1. Declared once here so
+  // both the rules engine (single Event Injector) and Quick Simulate use the
+  // exact same entity ids/names when splitting a stage across books.
+  const DBA_ENTITIES = {
+    BROKER: { id: 'ENT-AGY-01', name: 'Arora & Sons' },
+    MGA: { id: 'ENT-MGA-01', name: 'Vikas & Co' },
+    CARRIER: { id: 'ENT-CAR-01', name: 'Vikram & Sons' }
+  };
+
+  // Event type -> Policies Register status label. Every successful
+  // injection (not just Stage 1 binding) updates a policy's row via
+  // syncPolicyRegister below, so a policy uploaded via "Upload Policy
+  // JSON" (or any built-in demo policy) shows its real lifecycle progress
+  // instead of staying frozen at "BOUND" forever.
+  const STATUS_BY_EVENT_TYPE = {
+    POLICY_BINDING_INVOICED: 'BOUND',
+    PREMIUM_ADJUSTED: 'BOUND',
+    PAYMENT_RECEIVED: 'PAID BY INSURED',
+    PAYMENT_OVERPAID: 'PAID BY INSURED',
+    PAYMENT_UNDERPAID: 'PARTIALLY PAID',
+    BROKER_SETTLEMENT_COMPLETED: 'BROKER SETTLED',
+    BORDEREAU_INGESTED: 'BORDEREAU INGESTED',
+    CARRIER_PAYMENT_COMPLETED: 'FULLY SETTLED',
+    POLICY_CANCELLED: 'CANCELLED'
+  };
+
+  // Updates the Policies Register after a successful injection — both the
+  // local table and the persisted Mongo record. Called for every stage,
+  // not just Stage 1, so the register's status column tracks a policy all
+  // the way through its lifecycle. Always sends the FULL record (not just
+  // `status`) to api.updatePolicy — that PATCH upserts, so a built-in demo
+  // policy that was never explicitly POSTed would otherwise get a Mongo
+  // document created with only `status` set and every other field sitting
+  // on the schema's blank/zero defaults, silently wiping its name/premium
+  // the next time the register re-fetches from the database.
+  const syncPolicyRegister = (evt) => {
+    const status = STATUS_BY_EVENT_TYPE[evt.event_type];
+    if (!status) return;
+
+    setPolicies(prev => {
+      const existing = prev.find(p => p.number === evt.policy.policy_number);
+      const record = {
+        number: evt.policy.policy_number,
+        name: existing?.name || evt.parties.insured_name,
+        date: existing?.date || evt.dates.effective_date,
+        premium: existing?.premium || evt.financials.total_premium,
+        commissionPct: existing?.commissionPct ?? 8,
+        status,
+        brokerName: existing?.brokerName || evt.parties.producer,
+        mgaName: existing?.mgaName || evt.parties.mga_name,
+        carrierName: existing?.carrierName || evt.parties.carrier_name,
+        invoiceNumber: existing?.invoiceNumber || evt.invoice_number || ''
+      };
+
+      api.updatePolicy(record.number, record).catch(err => console.warn('[Atlas Policy Sync]:', err.message));
+
+      if (existing) {
+        return prev.map(p => p.number === record.number ? { ...p, ...record } : p);
+      }
+      return [record, ...prev];
+    });
+  };
+
+  // Process rules engine and generate journal entry line GROUPS — one group
+  // per entity book that must record this event. Several stages in the DBA
+  // lifecycle matrix post to two books at once (e.g. Stage 1 Policy Binding
+  // hits both the Broker's and the MGA's ledgers), so this returns an array
+  // of { entity, lines } rather than a single flat line list.
+  //
+  // Account codes below match the live Chart of Accounts seeded into MongoDB
+  // (server/data/seedData.js SEED_ACCOUNTS) — 1100 Premium Receivable,
+  // 2200 Net Premium Payable, 2300 Surplus Lines Taxes & Regulatory Fees,
+  // 4001 Gross Written Premium (GWP), 4100 MGA Program Override & Policy Fee
+  // Revenue, 4200 Producer / Broker Commission Revenue, 5100 Acquisition
+  // Costs & Broker Commissions, 1001 Cash / Bank.
+  const generateRulesEngineGroups = (evt) => {
+    // Nullish coalescing (not ||) throughout — several presets legitimately
+    // zero out a field (e.g. Stage 4's tax_and_fees), and `0 || fallback`
+    // would wrongly discard that real zero in favor of the fallback.
+    const totalBilled = evt.financials.total_premium ?? 39260;
+    const commission = evt.financials.broker_commission ?? 2500;
+    const netToMGA = totalBilled - commission;
+    const paid = evt.financials.payment_amount ?? 0;
+    const taxAndFees = evt.financials.tax_and_fees ?? 3503;
+    // MGA's own override/policy-fee revenue isn't a separate field on the
+    // event form. At Stage 1 (and Stage 3), `commission` above is the
+    // Broker's own retail commission, and the MGA override is a fixed
+    // ratio of it (MGA_OVERRIDE_RATIO — same $3,500/$2,500 = 1.4x split the
+    // built-in POL-V8NHT demo always used), so it scales with whatever
+    // policy is actually loaded instead of always being a flat $3,500. At
+    // Stage 4 (Bordereau) and Stage 5 (Carrier Payment), the *same* form
+    // field is deliberately repurposed by computeStageAmounts to already
+    // carry the MGA override amount directly (those events are injected
+    // independently, often by the Carrier, who has no visibility into
+    // Stage 1's own broker-commission figure) — so there it's used as-is,
+    // and the Broker's own retail commission is reverse-derived from it
+    // instead, only to gross up the Carrier's GWP/acquisition-cost
+    // recognition — never for cash movement, since no cash actually passes
+    // between Carrier and Broker.
+    const commissionFieldIsMgaOverride = evt.event_type === 'BORDEREAU_INGESTED' || evt.event_type === 'CARRIER_PAYMENT_COMPLETED';
+    const mgaOverride = commissionFieldIsMgaOverride ? commission : Math.round(commission * MGA_OVERRIDE_RATIO);
+    const brokerCommission = commissionFieldIsMgaOverride ? Math.round(commission / MGA_OVERRIDE_RATIO) : commission;
+    const netToCarrier = netToMGA - mgaOverride - taxAndFees;
+
+    const broker = { id: DBA_ENTITIES.BROKER.id, name: evt.parties.producer || DBA_ENTITIES.BROKER.name };
+    const mga = { id: DBA_ENTITIES.MGA.id, name: evt.parties.mga_name || DBA_ENTITIES.MGA.name };
+    const carrier = { id: DBA_ENTITIES.CARRIER.id, name: evt.parties.carrier_name || DBA_ENTITIES.CARRIER.name };
+
+    let groups = [];
+    let apBill = null;
+    let arInvoices = [];
+    if (evt.event_type === 'POLICY_BINDING_INVOICED' || evt.event_type === 'PREMIUM_ADJUSTED') {
+      // Stage 1 — Broker invoices the insured; MGA simultaneously invoices the Broker.
+      groups = [
+        {
+          entity: broker,
+          lines: [
+            { acct: '1100', desc: `Premium Receivable — ${evt.parties.insured_name} (${evt.invoice_number || evt.policy.policy_number})`, debit: Math.abs(totalBilled), credit: 0 },
+            { acct: '2200', name: 'Net Premium Payable to MGA', desc: `Net Premium Payable — ${evt.parties.mga_name}`, debit: 0, credit: Math.abs(netToMGA) },
+            { acct: '4200', desc: `Producer / Broker Commission Revenue`, debit: 0, credit: Math.abs(commission) }
+          ]
+        },
+        {
+          entity: mga,
+          lines: [
+            { acct: '1100', desc: `Premium Receivable — ${evt.parties.producer}`, debit: Math.abs(netToMGA), credit: 0 },
+            { acct: '2200', desc: `Net Premium Payable — ${evt.parties.carrier_name}`, debit: 0, credit: Math.abs(netToCarrier) },
+            { acct: '2300', desc: `Surplus Lines Taxes & Regulatory Fees`, debit: 0, credit: Math.abs(taxAndFees) },
+            { acct: '4100', desc: `MGA Program Override & Policy Fee Revenue`, debit: 0, credit: Math.abs(mgaOverride) }
+          ]
+        }
+      ];
+      // Also raise real Accounts Receivable invoices for BOTH 1100 Premium
+      // Receivable lines above — the Broker's from the insured, AND the
+      // MGA's from the Broker (the same relationship as the AP bill Stage 2
+      // raises later, just the receivable side of it, recognized at binding
+      // rather than waiting for cash). Reuses the invoice number as the
+      // Broker's id so re-running the default demo preset updates that row
+      // instead of stacking duplicates.
+      arInvoices = [
+        {
+          id: evt.invoice_number || `INV-AR-${evt.policy.policy_number}`,
+          customer: evt.parties.insured_name,
+          policyNumber: evt.policy.policy_number,
+          amount: Math.abs(totalBilled),
+          dueDate: (() => {
+            const base = evt.dates?.transaction_date ? new Date(evt.dates.transaction_date) : new Date();
+            base.setDate(base.getDate() + 30);
+            return base.toISOString().slice(0, 10);
+          })(),
+          status: 'Open',
+          category: 'Policy Premium — Direct Bill',
+          entity: broker.id,
+          entityName: broker.name,
+          partnerType: 'Insured',
+          source: 'PAS',
+          description: `Premium Receivable — ${evt.parties.insured_name} on ${evt.policy.policy_number} (Stage 1 binding)`
+        },
+        {
+          id: `INV-AR-MGA-${evt.policy.policy_number}`,
+          customer: evt.parties.producer,
+          policyNumber: evt.policy.policy_number,
+          amount: Math.abs(netToMGA),
+          dueDate: (() => {
+            const base = evt.dates?.transaction_date ? new Date(evt.dates.transaction_date) : new Date();
+            base.setDate(base.getDate() + 10);
+            return base.toISOString().slice(0, 10);
+          })(),
+          status: 'Open',
+          category: 'MGA Settlement Receivable',
+          entity: mga.id,
+          entityName: mga.name,
+          partnerType: 'Broker',
+          source: 'PAS',
+          description: `Premium Receivable — ${evt.parties.producer} on ${evt.policy.policy_number} (Stage 1 binding)`
+        }
+      ];
+    } else if (evt.event_type === 'PAYMENT_RECEIVED' || evt.event_type === 'PAYMENT_OVERPAID' || evt.event_type === 'PAYMENT_UNDERPAID') {
+      // Stage 2 — Broker book only. Now that the Broker actually holds the
+      // customer's cash, also raise a real Accounts Payable bill for the
+      // net premium it owes the MGA (Stage 1's 2200 credit becomes a
+      // payable Broker can action from the AP module, not just a JE line).
+      // PAYMENT_OVERPAID/PAYMENT_UNDERPAID reuse this same posting logic,
+      // but 1100 can only ever be cleared up to what was actually billed —
+      // crediting it past that would push a debit-normal asset account
+      // negative. So the receipt is split: up to `totalBilled` clears 1100,
+      // and anything received beyond that lands on 2001 as a credit balance
+      // owed back to the insured (PAYMENT_OVERPAID). Paying in short simply
+      // clears less of 1100, correctly leaving the remainder as an open
+      // receivable (PAYMENT_UNDERPAID) — no extra line needed for that case.
+      // What the Broker owes the MGA below is unaffected either way — that
+      // obligation is fixed at the billed net premium, not at whatever cash
+      // happened to come in from the insured.
+      const amountReceived = paid || totalBilled;
+      const arClear = Math.min(amountReceived, totalBilled);
+      const overpaymentCredit = Math.max(amountReceived - totalBilled, 0);
+      const shortBy = Math.max(totalBilled - amountReceived, 0);
+
+      groups = [{
+        entity: broker,
+        lines: [
+          {
+            acct: '1001',
+            desc: `Customer Premium Receipt — ${evt.parties.insured_name}${overpaymentCredit > 0 ? ` (includes $${overpaymentCredit.toLocaleString()} overpayment)` : ''}`,
+            debit: amountReceived,
+            credit: 0
+          },
+          {
+            acct: '1100',
+            desc: shortBy > 0
+              ? `Partial Clear Premium Receivable — ${evt.parties.insured_name} ($${shortBy.toLocaleString()} remains outstanding)`
+              : `Clear Premium Receivable — ${evt.parties.insured_name}`,
+            debit: 0,
+            credit: arClear
+          },
+          ...(overpaymentCredit > 0 ? [{
+            acct: '2001',
+            desc: `Customer Credit Balance Payable — ${evt.parties.insured_name} (Overpayment Refund Due)`,
+            debit: 0,
+            credit: overpaymentCredit
+          }] : [])
+        ]
+      }];
+      apBill = {
+        id: `INV-AP-MGA-${evt.policy.policy_number}`,
+        vendor: mga.name,
+        policyNumber: evt.policy.policy_number,
+        amount: Math.abs(netToMGA),
+        dueDate: (() => {
+          const base = evt.dates?.transaction_date ? new Date(evt.dates.transaction_date) : new Date();
+          base.setDate(base.getDate() + 5);
+          return base.toISOString().slice(0, 10);
+        })(),
+        category: 'MGA Settlement — Net Premium Payable',
+        glAcct: '2200',
+        method: 'ACH',
+        status: 'Approved',
+        entity: broker.id,
+        entityName: broker.name,
+        counterpartyEntity: mga,
+        counterpartyReceivableAcct: '1100',
+        source: 'PAS',
+        description: `Net Premium Payable to ${mga.name} on ${evt.policy.policy_number} (Stage 3 settlement)`
+        // Paying this does NOT chain straight to a Carrier bill — the MGA
+        // must first send/ingest the Bordereau (Stage 4b) before it owes the
+        // Carrier anything. That bill is raised on BORDEREAU_INGESTED below.
+      };
+    } else if (evt.event_type === 'BROKER_SETTLEMENT_COMPLETED') {
+      // Stage 3 — Broker disburses to MGA; MGA simultaneously receives it.
+      // Settles for whatever the Broker actually sends (`paid`, pre-filled
+      // by handleApplyPreset off any Stage 2 shortfall), capped at what's
+      // actually owed (`netToMGA`) — mirrors Stage 2's own partial-clear
+      // treatment. Settling for less than netToMGA leaves both the Broker's
+      // 2200 payable and the MGA's 1100 receivable with a residual open
+      // balance for the rest, rather than wiping out an obligation that
+      // wasn't actually paid off.
+      const disbursed = Math.min(Math.abs(paid || netToMGA), Math.abs(netToMGA));
+      const settlementShort = Math.max(Math.abs(netToMGA) - disbursed, 0);
+      groups = [
+        {
+          entity: broker,
+          lines: [
+            {
+              acct: '2200',
+              name: 'Net Premium Payable to MGA',
+              desc: settlementShort > 0
+                ? `Partial Clear Net Premium Payable to ${evt.parties.mga_name} ($${settlementShort.toLocaleString()} remains outstanding)`
+                : `Clear Net Premium Payable to ${evt.parties.mga_name}`,
+              debit: disbursed, credit: 0
+            },
+            { acct: '1001', desc: `Disburse Net Premium to ${evt.parties.mga_name}`, debit: 0, credit: disbursed }
+          ]
+        },
+        {
+          entity: mga,
+          lines: [
+            { acct: '1001', desc: `Cash Receipt from ${evt.parties.producer}`, debit: disbursed, credit: 0 },
+            {
+              acct: '1100',
+              desc: settlementShort > 0
+                ? `Partial Clear Premium Receivable — ${evt.parties.producer} ($${settlementShort.toLocaleString()} remains outstanding)`
+                : `Clear Premium Receivable — ${evt.parties.producer}`,
+              debit: 0, credit: disbursed
+            }
+          ]
+        }
+      ];
+    } else if (evt.event_type === 'BORDEREAU_INGESTED') {
+      // Stage 4b — Carrier book only. GWP is recognized gross of the FULL
+      // distribution load ($6,000 = MGA override + the retail Broker's own
+      // commission), not just the MGA's own cut — that's the standard
+      // industry definition of Gross Written Premium: full premium for the
+      // risk, net only of non-premium pass-throughs like state tax, before
+      // any commission deduction. Netting the Broker's commission out of
+      // GWP silently (the old behavior) understated both GWP and the
+      // Carrier's true acquisition-cost load by $2,500.
+      //
+      // That $6,000 posts as ONE line to Vikas & Co, not two — the Carrier has no
+      // contract with Arora & Sons and doesn't know or care that Vikas & Co is passing part
+      // of it downstream to a retail producer. From the Carrier's side this
+      // is a single acquisition-cost obligation to its one counterparty;
+      // how Vikas & Co further splits it is Vikas & Co's own book, not the Carrier's. No
+      // cash changes hands between Carrier and Broker either way — this
+      // only changes what the Carrier's own P&L reports, not what it
+      // collects (netToCarrier, and therefore the AP bill below, is
+      // unchanged).
+      groups = [{
+        entity: carrier,
+        lines: [
+          { acct: '1100', desc: `Settlement Receivable — ${evt.parties.mga_name}`, debit: Math.abs(netToCarrier), credit: 0 },
+          { acct: '5100', desc: `Acquisition Costs & Broker Commissions — ${evt.parties.mga_name} Program Distribution Commission`, debit: Math.abs(mgaOverride + brokerCommission), credit: 0 },
+          { acct: '4001', desc: `Gross Written Premium (GWP)`, debit: 0, credit: Math.abs(netToCarrier + mgaOverride + brokerCommission) }
+        ]
+      }];
+      // Raise the Carrier's own AR invoice for the 1100 Settlement
+      // Receivable line just posted above — without this, the Carrier's own
+      // AR Register stays permanently empty even though its GL clearly
+      // carries the receivable (visible on Journal Entry/Chart of Accounts,
+      // just never surfaced as an actionable AR record). Cleared below when
+      // CARRIER_PAYMENT_COMPLETED (Stage 5) is injected.
+      arInvoices = [{
+        id: `INV-AR-CARRIER-${evt.policy.policy_number}`,
+        customer: evt.parties.mga_name,
+        policyNumber: evt.policy.policy_number,
+        amount: Math.abs(netToCarrier),
+        dueDate: (() => {
+          const base = evt.dates?.transaction_date ? new Date(evt.dates.transaction_date) : new Date();
+          base.setDate(base.getDate() + 10);
+          return base.toISOString().slice(0, 10);
+        })(),
+        status: 'Open',
+        category: 'Carrier Settlement Receivable',
+        entity: carrier.id,
+        entityName: carrier.name,
+        partnerType: 'MGA',
+        source: 'PAS',
+        description: `Settlement Receivable — ${evt.parties.mga_name} on ${evt.policy.policy_number} (Stage 4 Bordereau)`
+      }];
+      // Only NOW — once the Carrier has actually received and ingested the
+      // MGA's bordereau — does the MGA have a real obligation to remit. Raise
+      // that bill directly in the MGA's own AP book (Stage 5a); paying it
+      // posts the matching Stage 5b receipt straight to the Carrier's book.
+      apBill = {
+        id: `INV-AP-CARRIER-${evt.policy.policy_number}`,
+        vendor: carrier.name,
+        policyNumber: evt.policy.policy_number,
+        amount: Math.abs(netToCarrier),
+        dueDate: (() => {
+          const base = evt.dates?.transaction_date ? new Date(evt.dates.transaction_date) : new Date();
+          base.setDate(base.getDate() + 10);
+          return base.toISOString().slice(0, 10);
+        })(),
+        category: 'Carrier Settlement — Net Premium Payable',
+        glAcct: '2200',
+        method: 'ACH',
+        status: 'Approved',
+        entity: mga.id,
+        entityName: mga.name,
+        counterpartyEntity: carrier,
+        counterpartyReceivableAcct: '1100',
+        source: 'PAS',
+        description: `Net Premium Payable to ${carrier.name} on ${evt.policy.policy_number} (Stage 5 settlement)`
+      };
+    } else if (evt.event_type === 'CARRIER_PAYMENT_COMPLETED') {
+      // Stage 5a+5b — MGA disburses to Carrier; Carrier simultaneously
+      // receives it. Same partial-clear treatment as Stage 3: settles for
+      // whatever the MGA actually sends (`paid`, pre-filled by
+      // handleApplyPreset off any Stage 2 shortfall), capped at what's
+      // actually owed (`netToCarrier`) — under-settling leaves both the
+      // MGA's 2200 payable and the Carrier's 1100 receivable with a
+      // residual open balance instead of wiping out an unpaid obligation.
+      const disbursedToCarrier = Math.min(Math.abs(paid || netToCarrier), Math.abs(netToCarrier));
+      const carrierSettlementShort = Math.max(Math.abs(netToCarrier) - disbursedToCarrier, 0);
+      groups = [
+        {
+          entity: mga,
+          lines: [
+            {
+              acct: '2200',
+              desc: carrierSettlementShort > 0
+                ? `Partial Clear Net Premium Payable to ${evt.parties.carrier_name} ($${carrierSettlementShort.toLocaleString()} remains outstanding)`
+                : `Clear Net Premium Payable to ${evt.parties.carrier_name}`,
+              debit: disbursedToCarrier, credit: 0
+            },
+            { acct: '1001', desc: `ACH Disburse to ${evt.parties.carrier_name}`, debit: 0, credit: disbursedToCarrier }
+          ]
+        },
+        {
+          entity: carrier,
+          lines: [
+            { acct: '1001', desc: `MGA Premium Settlement Receipt — ${evt.parties.mga_name}`, debit: disbursedToCarrier, credit: 0 },
+            {
+              acct: '1100',
+              desc: carrierSettlementShort > 0
+                ? `Partial Clear Settlement Receivable — ${evt.parties.mga_name} ($${carrierSettlementShort.toLocaleString()} remains outstanding)`
+                : `Clear Settlement Receivable — ${evt.parties.mga_name}`,
+              debit: 0, credit: disbursedToCarrier
+            }
+          ]
+        }
+      ];
+    } else if (evt.event_type === 'POLICY_CANCELLED') {
+      // Reverses the Broker's own Stage 1 entry — same book, same accounts.
+      groups = [{
+        entity: broker,
+        lines: [
+          { acct: '2200', name: 'Net Premium Payable to MGA', desc: `Reverse Net Premium Payable to ${evt.parties.mga_name}`, debit: Math.abs(netToMGA), credit: 0 },
+          { acct: '4200', desc: `Reverse Producer / Broker Commission Revenue`, debit: Math.abs(commission), credit: 0 },
+          { acct: '1100', desc: `Reverse Premium Receivable`, debit: 0, credit: Math.abs(totalBilled) }
+        ]
+      }];
+    }
+    return { groups, apBill, arInvoices };
+  };
+
+  // Execution engine — creates one DRAFT journal entry per entity book the
+  // event touches (see generateRulesEngineGroups). Entries stay Draft until
+  // manually posted on the Journal Entry page, per the "post then COA hit"
+  // requirement — injecting an event must not silently move the Chart of
+  // Accounts.
+  const executeEventInjection = (evt) => {
+    const errors = validateEvent(evt);
+    if (errors.length > 0) {
+      const failedRecord = {
+        ...evt,
+        status: 'FAILED',
+        timestamp: new Date().toISOString(),
+        errors: errors,
+        jeNumber: null,
+        jeLines: []
+      };
+      setEvents(prev => [failedRecord, ...prev]);
+      showToast('Event Validation Failed! Check Exception Queue.', 'error');
+      return false;
+    }
+
+    const { groups, apBill, arInvoices } = generateRulesEngineGroups(evt);
+
+    // Actually post the event to the General Ledger — one draft JE per book —
+    // matching the JE structure documented in the accounting flow guide, so
+    // it shows up on Journal Entry / Chart of Accounts / Financial Statements
+    // for EVERY entity involved, not just this page's local log.
+    const jeGroups = groups.map(group => {
+      const glEntry = addJournalEntry({
+        date: (evt.dates && evt.dates.transaction_date) || new Date().toISOString().slice(0, 10),
+        reference: evt.transaction_id,
+        description: `${(evt.event_type || '').replace(/_/g, ' ')} — ${evt.policy.policy_number} (${evt.event_id})`,
+        entity: group.entity.id,
+        entityName: group.entity.name,
+        status: 'Draft',
+        lines: group.lines.map(l => ({
+          accountCode: l.acct,
+          // Account 2200 is reused for two distinct payables — Broker→MGA
+          // and MGA→Carrier — but the Chart of Accounts only carries one
+          // fixed name for the code ("Net Premium Payable to Carrier").
+          // `l.name` lets a line override that with the name that's
+          // actually correct for its own book (see the Broker-side 2200
+          // lines above); everything else still falls back to the COA name.
+          accountName: l.name || accounts.find(a => a.code === l.acct)?.name || l.desc,
+          debit: l.debit,
+          credit: l.credit,
+          description: l.desc
+        }))
+      });
+      return { entity: group.entity, jeNumber: glEntry.id, lines: group.lines };
+    });
+
+    // Stage 1 (policy bound & invoiced) also raises real Accounts
+    // Receivable invoices for BOTH 1100 lines it just posted — the Broker's
+    // from the insured, and the MGA's from the Broker — visible and
+    // actionable on each entity's own AR Register (Record Pay there fires
+    // collectArInvoice's own cash-receipt JE).
+    const arInvoiceRecords = (arInvoices || []).map(inv => addArInvoice(inv));
+
+    // Clearing an entity's AR invoice via a settlement event — mark it paid
+    // directly rather than routing through collectArInvoice, which would
+    // post a second, duplicate cash-receipt JE on top of the one the
+    // relevant group above already posted.
+    let paidArInvoiceRecords = [];
+    if (evt.event_type === 'PAYMENT_RECEIVED' || evt.event_type === 'PAYMENT_OVERPAID' || evt.event_type === 'PAYMENT_UNDERPAID') {
+      // Stage 2 (and its overpaid/underpaid variants) — customer's payment clears the Broker's own AR invoice.
+      const matchingArId = evt.invoice_number || `INV-AR-${evt.policy.policy_number}`;
+      const rec = markArInvoicePaid(matchingArId, evt.financials.payment_amount || evt.financials.total_premium);
+      if (rec) paidArInvoiceRecords.push(rec);
+    } else if (evt.event_type === 'BROKER_SETTLEMENT_COMPLETED') {
+      // Stage 3 — Broker's disbursement clears the MGA's AR invoice.
+      const rec = markArInvoicePaid(`INV-AR-MGA-${evt.policy.policy_number}`, evt.financials.payment_amount);
+      if (rec) paidArInvoiceRecords.push(rec);
+    } else if (evt.event_type === 'CARRIER_PAYMENT_COMPLETED') {
+      // Stage 5 — MGA's disbursement clears the Carrier's own AR invoice
+      // (raised at Stage 4 Bordereau above).
+      const rec = markArInvoicePaid(`INV-AR-CARRIER-${evt.policy.policy_number}`, evt.financials.payment_amount);
+      if (rec) paidArInvoiceRecords.push(rec);
+    }
+
+    // Same idea on the AP side — injecting the settlement stage directly
+    // (instead of clicking Pay Now on the Accounts Payable page) already
+    // posts the disbursement/receipt JE above via the groups, so the AP
+    // bill Stage 2/4 raised for this policy needs to flip to Paid here too.
+    // Without this, that bill would keep showing an active Pay Now button
+    // even though the settlement has already been recorded.
+    let paidApInvoiceRecords = [];
+    if (evt.event_type === 'BROKER_SETTLEMENT_COMPLETED') {
+      const rec = markApInvoicePaid(`INV-AP-MGA-${evt.policy.policy_number}`, evt.financials.payment_amount);
+      if (rec) paidApInvoiceRecords.push(rec);
+    } else if (evt.event_type === 'CARRIER_PAYMENT_COMPLETED') {
+      const rec = markApInvoicePaid(`INV-AP-CARRIER-${evt.policy.policy_number}`, evt.financials.payment_amount);
+      if (rec) paidApInvoiceRecords.push(rec);
+    }
+
+    // Stage 2 (customer paid the Broker) also raises a real, payable AP bill
+    // for what the Broker now owes the MGA — visible on the Accounts Payable
+    // page, actionable with Pay Now. Paying it (payApInvoice) is what fires
+    // the Stage 3 dual JE (Broker disburses + MGA receives) automatically.
+    const apBillRecord = apBill ? addApInvoice(apBill) : null;
+
+    const postedRecord = {
+      ...evt,
+      status: 'POSTED',
+      timestamp: new Date().toISOString(),
+      errors: [],
+      jeNumber: jeGroups.map(g => g.jeNumber).join(', '),
+      jeLines: jeGroups.flatMap(g => g.lines.map(l => ({ ...l, desc: jeGroups.length > 1 ? `[${g.entity.name}] ${l.desc}` : l.desc }))),
+      jeGroups,
+      arInvoiceId: arInvoiceRecords.map(r => r.id).join(', ') || null,
+      apInvoiceId: apBillRecord?.id || null
+    };
+
+    // Update the Policies Register row (and its persisted Mongo record) to
+    // reflect this stage — see syncPolicyRegister.
+    syncPolicyRegister(evt);
+
+    setEvents(prev => [postedRecord, ...prev]);
+    setSessionInjectedTypes(prev => new Set(prev).add(evt.event_type));
+
+    // Async push to MongoDB Atlas — this is the persisted record the
+    // mount-time fetch above reads back, so the lockout holds even after a
+    // refresh. The DB also enforces one (policy, event_type) pair via a
+    // unique index, rejecting a duplicate with 409 if one somehow slips
+    // past the client-side currentPresetInjected check (e.g. two tabs).
+    api.createPasEvent(postedRecord).catch(err => console.warn('[Atlas PAS Event Sync]:', err.message));
+
+    const jeList = jeGroups.map(g => `${g.jeNumber} (${g.entity.name})`).join(' + ');
+    const arNote = arInvoiceRecords.length > 0 ? ` AR invoice${arInvoiceRecords.length > 1 ? 's' : ''} ${arInvoiceRecords.map(r => `${r.id} (${r.entityName})`).join(' + ')} raised — visible on each book's Accounts Receivable.` : '';
+    const arPaidNote = paidArInvoiceRecords.length > 0 ? ` AR invoice${paidArInvoiceRecords.length > 1 ? 's' : ''} ${paidArInvoiceRecords.map(r => r.id).join(', ')} marked Paid.` : '';
+    const apNote = apBillRecord ? ` AP bill ${apBillRecord.id} raised for ${apBillRecord.vendor} — pay it on Accounts Payable to complete the settlement.` : '';
+    const apPaidNote = paidApInvoiceRecords.length > 0 ? ` AP bill${paidApInvoiceRecords.length > 1 ? 's' : ''} ${paidApInvoiceRecords.map(r => r.id).join(', ')} marked Paid — no need to also click Pay Now on Accounts Payable.` : '';
+    showToast(`Event ${evt.event_id} (${evt.policy.policy_number}) validated — ${jeList} created as draft${jeGroups.length > 1 ? 's' : ''}. Post on Journal Entry to hit the Chart of Accounts.${arNote}${arPaidNote}${apNote}${apPaidNote}`);
+    return true;
+  };
+
+  // Re-injecting the same stage in this session would double-post its
+  // journal entries and AP/AR records, so once a preset has actually gone
+  // through here, it's retired from the picker rather than left selectable
+  // for an accidental repeat click. Backed by sessionInjectedTypes, not raw
+  // `events` — see that state's comment for why.
+  const isPresetInjected = (key) => sessionInjectedTypes.has((PRESET_DEFAULTS[key] || {}).evtType);
+  const currentPresetInjected = isPresetInjected(preset);
+
+  // Keeps the dropdown's own text honest — Stage 3/5's options would
+  // otherwise keep advertising their full amounts even after Stage 2 Pay
+  // Short has already left a shortfall and handleApplyPreset is about to
+  // pre-fill a reduced amount instead. Recomputed from `events` (not
+  // memoized) since the PAS event log is small and this only runs per
+  // render of the option list.
+  const getPresetLabel = (opt) => {
+    const shortfall = getStage2CashShortfall(events, polNum);
+    if (shortfall <= 0) return opt.label;
+    if (opt.value === 'broker_settlement') {
+      const fullNetToMga = computeStageAmounts('broker_settlement', policyBase).paymentAmount;
+      const adjustedNetToMga = Math.max(fullNetToMga - shortfall, 0);
+      return `Stage 3: BROKER_SETTLEMENT_COMPLETED (Broker pays MGA · $${adjustedNetToMga.toLocaleString()} — reduced from $${fullNetToMga.toLocaleString()} after Stage 2 shortfall)`;
+    }
+    if (opt.value === 'carrier_payment_completed') {
+      const fullNetToCarrier = computeStageAmounts('carrier_payment_completed', policyBase).paymentAmount;
+      const adjustedNetToCarrier = Math.max(fullNetToCarrier - shortfall, 0);
+      return `Stage 5: CARRIER_PAYMENT_COMPLETED (MGA pays Carrier · $${adjustedNetToCarrier.toLocaleString()} — reduced from $${fullNetToCarrier.toLocaleString()} after Stage 2 shortfall)`;
+    }
+    return opt.label;
+  };
+
+  // Recomputed per render from policyBase/polNum/insuredName so the dropdown
+  // always advertises the currently loaded policy's own amounts — see
+  // buildPresetOptions.
+  const presetOptions = useMemo(
+    () => buildPresetOptions(policyBase, polNum, insuredName),
+    [policyBase, polNum, insuredName]
+  );
+
+  const handleSubmitCustomEvent = (e) => {
+    e.preventDefault();
+    if (currentPresetInjected) {
+      showToast('This event has already been injected — pick a different stage.', 'error');
+      return;
+    }
+    const ok = executeEventInjection(currentPayload);
+    if (ok) {
+      setEvtId(generateUUID('EVT'));
+      setTxnId(generateUUID('TXN'));
+    }
+  };
+
+  // Deep-link auto-injection — e.g. MGA Operations' "+ Generate & Submit
+  // Bordereau" sends the user here with ?preset=bordereau_ingested&autoInject=1
+  // so the event actually fires on arrival, instead of pre-filling the form
+  // and leaving a second, easy-to-miss "Inject Event into Rules Engine"
+  // click as the only thing standing between the button's label and what it
+  // actually does. (This mount-time action effect calls setState the same
+  // way syncWithBackend's does elsewhere in this app — an accepted, tracked
+  // exception to the no-setState-in-effect rule for one-time, real actions
+  // triggered by how a page was opened, not for deriving render state.)
+  const autoInjectedRef = useRef(false);
+  useEffect(() => {
+    if (autoInjectedRef.current) return;
+    if (new URLSearchParams(location.search).get('autoInject') === '1') {
+      autoInjectedRef.current = true;
+      executeEventInjection(currentPayload);
+    }
+    // Intentionally mount-only: acts once on the URL this page was opened
+    // with, using the preset-derived initial payload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Full DBA (Direct Bill to Agency) cross-entity lifecycle — matches
+  // finance-and-accounting-main/README.md Section 4.1 exactly. Unlike the
+  // custom Event Data Injector (which now also splits a stage's JE across
+  // every book it touches, but leaves each as Draft), this posts the
+  // *entire* documented chain: 7 journal entries POSTED directly, each
+  // tagged to whichever of the three books (Broker Arora & Sons / MGA Vikas & Co / Carrier
+  // Vikram & Sons) actually owns that entry — regardless of which role is
+  // logged in when you click the button.
+  // Parameterized by `identity` (policy/invoice number, the four party
+  // names, and Stage 1's premium/taxAndFees/commission) so the same 3-book
+  // chain can run end-to-end against any policy's own numbers — not just
+  // the originally hardcoded POL-V8NHT figures. The three books themselves
+  // (DBA_ENTITIES) stay fixed regardless of `identity` — Broker/MGA/Carrier
+  // display names are cosmetic per policy, but Arora & Sons/Vikas & Co/Vikram & Sons are the
+  // only entities with actual logins and GL books in this demo, exactly as
+  // generateRulesEngineGroups already treats them for the single Event
+  // Injector above.
+  const runQuickSimulation = (identity) => {
+    const { policyNumber, invoiceNumber, insuredName: insured, brokerName: broker_, carrierName: carrier_, mgaName: mga_, premium, taxAndFees, commission } = identity;
+    const total = premium + taxAndFees + commission;
+    const netToMga = total - commission;
+    const mgaOverride = Math.round(commission * MGA_OVERRIDE_RATIO);
+    const netToCarrier = netToMga - mgaOverride - taxAndFees;
+    // Same $6,000 = MGA override + retail Broker's own commission split the
+    // original POL-V8NHT figures used — see the matching comment in
+    // generateRulesEngineGroups' BORDEREAU_INGESTED branch.
+    const acquisitionCosts = mgaOverride + commission;
+    const gwp = netToCarrier + acquisitionCosts;
+
+    const acctName = (code, fallback) => accounts.find(a => a.code === code)?.name || fallback;
+    // Account 2200 is reused for two distinct payables — Broker→MGA and
+    // MGA→Carrier — but the Chart of Accounts only carries one fixed name
+    // for the code ("Net Premium Payable to Carrier"). `nameOverride` lets
+    // the Broker-side 2200 lines below show the name that's actually
+    // correct for their own book instead of that fixed COA name.
+    const line = (code, debit, credit, desc, nameOverride) => ({ accountCode: code, accountName: nameOverride || acctName(code, desc), debit, credit, description: desc });
+
+    const postStageJE = (entity, description, lines) => {
+      const glEntry = addJournalEntry({
+        date: '2026-08-20',
+        reference: generateUUID('TXN'),
+        description,
+        entity: entity.id,
+        entityName: entity.name,
+        status: 'Posted',
+        lines
+      });
+      setEvents(prev => [{
+        event_id: generateUUID('EVT'),
+        event_type: description,
+        transaction_id: glEntry.reference,
+        invoice_number: invoiceNumber,
+        policy: { policy_id: policyNumber, policy_number: policyNumber, lob: 'Commercial Trucking', state: 'TX' },
+        parties: { insured_name: insured, insured_id: 'INS-' + insured.toUpperCase(), carrier_name: carrier_, carrier_id: 'CAR-' + carrier_.toUpperCase(), mga_name: mga_, mga_id: 'MGA-' + mga_.toUpperCase(), producer: broker_ },
+        financials: { premium, tax_and_fees: taxAndFees, total_premium: total, broker_commission: commission, payment_amount: 0, currency: 'USD' },
+        dates: { effective_date: '2026-08-20', transaction_date: '2026-08-20' },
+        source_system: 'PAS',
+        status: 'POSTED',
+        timestamp: new Date().toISOString(),
+        errors: [],
+        jeNumber: glEntry.id,
+        jeLines: lines,
+        bookEntity: entity.name
+      }, ...prev]);
+      return glEntry;
+    };
+
+    // Stage 1: Policy Binding & Invoicing — Broker + MGA books
+    postStageJE(DBA_ENTITIES.BROKER, `Policy Binding & Invoicing — ${policyNumber} (Stage 1)`, [
+      line('1100', total, 0, `Premium Receivable — ${insured}`),
+      line('2200', 0, netToMga, `Net Premium Payable — ${mga_}`, 'Net Premium Payable to MGA'),
+      line('4200', 0, commission, 'Producer / Broker Commission Revenue')
+    ]);
+    postStageJE(DBA_ENTITIES.MGA, `Policy Binding & Invoicing — ${policyNumber} (Stage 1)`, [
+      line('1100', netToMga, 0, `Premium Receivable — ${broker_}`),
+      line('2200', 0, netToCarrier, `Net Premium Payable — ${carrier_}`),
+      line('2300', 0, taxAndFees, 'Surplus Lines Taxes & Regulatory Fees'),
+      line('4100', 0, mgaOverride, 'MGA Program Override & Policy Fee Revenue')
+    ]);
+
+    setTimeout(() => {
+      // Stage 2: Customer Premium Collection — Broker book
+      postStageJE(DBA_ENTITIES.BROKER, `Customer Premium Collection — ${policyNumber} (Stage 2)`, [
+        line('1001', total, 0, `Cash Receipt from ${insured}`),
+        line('1100', 0, total, `Clear Premium Receivable — ${insured}`)
+      ]);
+
+      setTimeout(() => {
+        // Stage 3: Broker Settlement to MGA — Broker + MGA books
+        postStageJE(DBA_ENTITIES.BROKER, `Broker Settlement to MGA — ${policyNumber} (Stage 3)`, [
+          line('2200', netToMga, 0, `Clear Net Premium Payable — ${mga_}`, 'Net Premium Payable to MGA'),
+          line('1001', 0, netToMga, `Disburse Net Premium to ${mga_}`)
+        ]);
+        postStageJE(DBA_ENTITIES.MGA, `Broker Premium Settlement Received — ${policyNumber} (Stage 3)`, [
+          line('1001', netToMga, 0, `Cash Receipt from ${broker_}`),
+          line('1100', 0, netToMga, `Clear Premium Receivable — ${broker_}`)
+        ]);
+
+        setTimeout(() => {
+          // Stage 4b: Carrier Bordereau Ingestion — Carrier book. Posts as
+          // ONE line to the MGA, not split out by the Broker's name — the
+          // Carrier's only contract is with the MGA; how the MGA further
+          // splits it downstream isn't the Carrier's book to keep.
+          postStageJE(DBA_ENTITIES.CARRIER, `Bordereau Ingestion — ${policyNumber} (Stage 4b)`, [
+            line('1100', netToCarrier, 0, `Settlement Receivable — ${mga_}`),
+            line('5100', acquisitionCosts, 0, `Acquisition Costs & Broker Commissions — ${mga_} Program Distribution Commission`),
+            line('4001', 0, gwp, 'Gross Written Premium (GWP)')
+          ]);
+
+          setTimeout(() => {
+            // Stage 5a: MGA Net Settlement — MGA book
+            postStageJE(DBA_ENTITIES.MGA, `Net-Net Premium Disbursed to Carrier — ${policyNumber} (Stage 5a)`, [
+              line('2200', netToCarrier, 0, `Clear Net Premium Payable — ${carrier_}`),
+              line('1001', 0, netToCarrier, `ACH Disburse to ${carrier_}`)
+            ]);
+
+            setTimeout(() => {
+              // Stage 5b: Carrier Matches Inbound Wire — Carrier book
+              postStageJE(DBA_ENTITIES.CARRIER, `Cash Match — Inbound Wire from ${mga_} — ${policyNumber} (Stage 5b)`, [
+                line('1001', netToCarrier, 0, `Cash Receipt from ${mga_}`),
+                line('1100', 0, netToCarrier, `Clear Settlement Receivable — ${mga_}`)
+              ]);
+
+              setPolicies(prev => {
+                const existing = prev.find(p => p.number === policyNumber);
+                const record = {
+                  number: policyNumber,
+                  name: existing?.name || insured,
+                  date: existing?.date || '2026-08-20',
+                  premium: existing?.premium || total,
+                  commissionPct: existing?.commissionPct ?? Math.round((commission / total) * 1000) / 10,
+                  status: 'FULLY SETTLED',
+                  brokerName: existing?.brokerName || broker_,
+                  mgaName: existing?.mgaName || mga_,
+                  carrierName: existing?.carrierName || carrier_
+                };
+                // Full record, not just status — see syncPolicyRegister's
+                // comment for why a status-only PATCH would risk blanking
+                // this policy's other fields via upsert defaults.
+                api.updatePolicy(record.number, record).catch(err => console.warn('[Atlas Policy Sync]:', err.message));
+                if (existing) {
+                  return prev.map(p => p.number === policyNumber ? { ...p, ...record } : p);
+                }
+                return [record, ...prev];
+              });
+
+              setActiveTab('intake');
+              showToast(`End-to-End DBA Simulation complete for ${policyNumber} — 7 journal entries posted across Broker (${broker_}), MGA (${mga_}), and Carrier (${carrier_}) books.`, 'success');
+            }, 400);
+          }, 400);
+        }, 400);
+      }, 400);
+    }, 400);
+  };
+
+  const handleQuickSimulation = () => runQuickSimulation({
+    policyNumber: 'POL-V8NHT', invoiceNumber: 'INV-V8NHT-1',
+    insuredName: 'Ayushi', brokerName: 'Arora & Sons', carrierName: 'Vikram & Sons', mgaName: 'Vikas & Co',
+    premium: 33257, taxAndFees: 3503, commission: 2500
+  });
+
+  // One-click full chain for the default policy (POL-56IEM) — same 7-JE
+  // simulation as handleQuickSimulation above, so the default policy no
+  // longer requires manually selecting and injecting each of the 5 stages
+  // one at a time through the Event Data Injector.
+  const handleQuickSimulationDefault = () => runQuickSimulation({
+    policyNumber: DEFAULT_IDENTITY.polNum, invoiceNumber: DEFAULT_IDENTITY.invNum,
+    insuredName: DEFAULT_IDENTITY.insuredName, brokerName: DEFAULT_IDENTITY.brokerName,
+    carrierName: DEFAULT_IDENTITY.carrierName, mgaName: DEFAULT_IDENTITY.mgaName,
+    ...DEFAULT_IDENTITY.base
+  });
+
+  // Maps an uploaded invoice JSON (e.g. the PAS "final invoice" shape —
+  // invoiceNumber/policyId/namedInsured/premiumBeforeFees/fees[]/totalPremium)
+  // into a Policies Register row plus the `base` the Event Data Injector
+  // needs. taxAndFees is derived as whatever's left of totalPremium after
+  // premium and the broker's own fee are accounted for — not summed from
+  // the fees array directly — so premium + taxAndFees + commission always
+  // reconciles to totalPremium exactly, regardless of how the source JSON
+  // breaks its own fees down.
+  const parseInvoiceJsonToPolicy = (data) => {
+    const number = data.policyId || data.policyNumber || data.number;
+    if (!number) throw new Error('JSON is missing a policyId/policyNumber field.');
+
+    const premium = Number(data.premiumBeforeFees ?? data.coveragePremium ?? 0);
+    const totalPremium = Number(data.totalPremium ?? premium);
+    const fees = Array.isArray(data.fees) ? data.fees : [];
+    const brokerFee = fees.find(f => f.code === 'FEE_BROKER' || /broker/i.test(f.name || ''));
+    const commission = Number(brokerFee?.amt ?? Math.round(premium * 0.08));
+    const taxAndFees = Math.round((totalPremium - premium - commission) * 100) / 100;
+
+    const commissionPct = data.remittance?.commissionRate != null
+      ? Math.round(data.remittance.commissionRate * 1000) / 10
+      : (premium ? Math.round((commission / premium) * 1000) / 10 : 8);
+
+    return {
+      number,
+      name: data.namedInsured || data.insuredName || 'Unknown Insured',
+      date: data.policyTerm?.effectiveDate || data.invoiceDate || new Date().toISOString().slice(0, 10),
+      premium: totalPremium,
+      commissionPct,
+      status: 'BOUND',
+      brokerName: data.producer || data.brokerName || 'Broker',
+      mgaName: data.mga || data.mgaName || 'MGA',
+      carrierName: data.carrier || data.carrierName || 'Carrier',
+      invoiceNumber: data.invoiceNumber || `INV-${number.replace('POL-', '')}-1`,
+      lob: data.lineOfBusiness || 'Commercial Trucking',
+      state: data.state || 'TX',
+      base: { premium, taxAndFees, commission },
+      source: 'upload',
+      raw: data
+    };
+  };
+
+  const policyFileInputRef = useRef(null);
+
+  // Upload Policy JSON — reads the selected file, maps it to a register
+  // row, saves it to MongoDB (api.createPolicy), and adds it to the table
+  // immediately so it doesn't wait on a round trip/refresh to appear.
+  const handlePolicyFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const policy = parseInvoiceJsonToPolicy(data);
+
+      if (policies.some(p => p.number === policy.number)) {
+        showToast(`Policy ${policy.number} already exists in the register.`, 'error');
+        return;
+      }
+
+      const saved = await api.createPolicy(policy);
+      setPolicies(prev => [saved, ...prev]);
+      showToast(`Uploaded ${policy.number} — added to the Policies Register and saved to MongoDB.`, 'success');
+    } catch (err) {
+      showToast(`Could not load that file: ${err.message}`, 'error');
+    }
+  };
+
+  // Retry failed event
+  const handleRetryFailed = (failedEvt) => {
+    setEvtId(failedEvt.event_id);
+    setTxnId(failedEvt.transaction_id);
+    setEvtType(failedEvt.event_type);
+    setPolNum(failedEvt.policy.policy_number);
+    setInvNum(failedEvt.invoice_number || 'INV-V8NHT-1');
+    setLob(failedEvt.policy.lob);
+    setInsuredName(failedEvt.parties.insured_name);
+    setCarrierName(failedEvt.parties.carrier_name);
+    setMgaName(failedEvt.parties.mga_name);
+    setBrokerName(failedEvt.parties.producer || 'Direct');
+    setPremium(String(failedEvt.financials.premium));
+    setTaxAndFees(String(failedEvt.financials.tax_and_fees));
+    setCommission(String(failedEvt.financials.broker_commission));
+    setPaymentAmount(String(failedEvt.financials.payment_amount || 0));
+    setDateEff(failedEvt.dates.effective_date);
+    setDateTx(failedEvt.dates.transaction_date);
+
+    // Remove from exceptions
+    setEvents(prev => prev.filter(e => e !== failedEvt));
+    setActiveTab('injector');
+    showToast('Loaded failed event details. Correct parameters and re-inject.', 'info');
+  };
+
+  // Load from Register into Injector. Policies that carry their own `base`
+  // (Stage 1 premium/taxAndFees/commission — set for every built-in demo
+  // policy and for anything uploaded via "Upload Policy JSON") drive the
+  // injector directly off that data, so a freshly uploaded policy behaves
+  // exactly like a built-in one instead of needing its own hardcoded
+  // branch. Only a policy with no `base` at all (none exist today, but a
+  // hand-added register row still could) falls back to the original
+  // generic V8NHT-shaped defaults.
+  const handleLoadFromRegister = (policy) => {
+    setPolNum(policy.number);
+    setInsuredName(policy.name);
+    setBrokerName(policy.brokerName || 'Arora & Sons');
+    if (policy.carrierName) setCarrierName(policy.carrierName);
+    if (policy.mgaName) setMgaName(policy.mgaName);
+
+    if (policy.base) {
+      const total = policy.base.premium + policy.base.taxAndFees + policy.base.commission;
+      setInvNum(policy.invoiceNumber || `INV-${policy.number.replace('POL-', '')}-1`);
+      setLob(policy.lob || 'Commercial Trucking');
+      setStateCode(policy.state || 'TX');
+      setPremium(String(policy.base.premium));
+      setTaxAndFees(String(policy.base.taxAndFees));
+      setCommission(String(policy.base.commission));
+      setPolicyBase(policy.base);
+      setPreset('policy_bound');
+      setEvtType('POLICY_BINDING_INVOICED');
+      setPaymentAmount(String(policy.premium || total));
+    } else {
+      setInvNum(policy.number === 'POL-V8NHT' ? 'INV-V8NHT-1' : `INV-${policy.number.replace('POL-', '')}-1`);
+      setPremium('33257');
+      setTaxAndFees('3503');
+      setCommission('2500');
+      setPolicyBase({ premium: 33257, taxAndFees: 3503, commission: 2500 });
+      setPreset('payment_received');
+      setEvtType('PAYMENT_RECEIVED');
+      setPaymentAmount(String(policy.premium || 39260));
+    }
+    setActiveTab('injector');
+    showToast(`Loaded ${policy.number} into Event Data Injector with PAS final parameters. Ready to inject!`, 'info');
+  };
+
+  const failedCount = useMemo(() => {
+    return events.filter(e => e.status === 'FAILED').length;
+  }, [events]);
+
+  return (
+    <>
+      {toast && (
+        <div className={`veridex-toast veridex-toast-${toast.type}`}>
+          <span>{toast.type === 'error' ? '✕' : toast.type === 'warning' ? '⚠' : '✓'}</span>
+          <span>{toast.msg}</span>
+        </div>
+      )}
+
+      {/* Page Header */}
+      <div className="page-header">
+        <div>
+          <div className="page-title">Policy Administration System (PAS) – Event &amp; Data Injection Hub</div>
+          <div className="page-subtitle">
+            Generate business events and inject them directly into the Accounting Rules Engine
+          </div>
+        </div>
+        <div className="page-actions">
+          <button className="btn btn-primary" onClick={handleQuickSimulationDefault}>
+            ⚡ Quick Simulate End-to-End (POL-56IEM · $34,866)
+          </button>
+          <button className="btn btn-secondary" onClick={handleQuickSimulation} style={{ marginLeft: '8px' }}>
+            ⚡ Quick Simulate End-to-End (POL-V8NHT · $39,260)
+          </button>
+        </div>
+      </div>
+
+      {/* Custom Tabbed Menu */}
+      <div className="pas-tab-group">
+        <button
+          className={`pas-tab ${activeTab === 'injector' ? 'active' : ''}`}
+          onClick={() => setActiveTab('injector')}
+        >
+          Event Data Injector
+        </button>
+        <button
+          className={`pas-tab ${activeTab === 'intake' ? 'active' : ''}`}
+          onClick={() => setActiveTab('intake')}
+        >
+          Intake Event Log
+        </button>
+        <button
+          className={`pas-tab ${activeTab === 'exceptions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('exceptions')}
+        >
+          Exception Queue{' '}
+          {failedCount > 0 && (
+            <span
+              style={{
+                background: 'var(--red-600, #dc2626)',
+                color: '#fff',
+                fontSize: '10px',
+                padding: '2px 6px',
+                borderRadius: '10px',
+                marginLeft: '4px'
+              }}
+            >
+              {failedCount}
+            </span>
+          )}
+        </button>
+        <button
+          className={`pas-tab ${activeTab === 'register' ? 'active' : ''}`}
+          onClick={() => setActiveTab('register')}
+        >
+          Policies Register
+        </button>
+      </div>
+
+      {/* Tab 1: Event Data Injector Panel */}
+      {activeTab === 'injector' && (
+        <div className="pas-panel active">
+          <div className="injector-layout">
+            {/* Left Column: Event Customizer Form */}
+            <div className="form-card">
+              <div className="panel-title">Configure &amp; Inject Custom Event</div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label className="info-label">Load Event Preset</label>
+                <select
+                  className="info-input"
+                  style={{ width: '100%' }}
+                  value={preset}
+                  onChange={(e) => handleApplyPreset(e.target.value)}
+                >
+                  {presetOptions.filter((opt) => visiblePresets.includes(opt.value)).map((opt) => {
+                    const injected = isPresetInjected(opt.value);
+                    const label = getPresetLabel(opt);
+                    return (
+                      <option key={opt.value} value={opt.value} disabled={injected}>
+                        {injected ? `✓ ${label} — Already Injected` : label}
+                      </option>
+                    );
+                  })}
+                </select>
+                {ROLE_VISIBLE_PRESETS[currentUser?.role] && (
+                  <div style={{ fontSize: '12px', color: 'var(--gray-500)', marginTop: '4px' }}>
+                    Showing stages for your role: {currentUser.role.toUpperCase()}
+                  </div>
+                )}
+                {currentPresetInjected && (
+                  <div style={{ fontSize: '12px', color: 'var(--coral, #DC2626)', marginTop: '4px', fontWeight: 600 }}>
+                    This stage has already been injected and posted — pick a different one.
+                  </div>
+                )}
+              </div>
+
+              <form onSubmit={handleSubmitCustomEvent}>
+                <div style={{ borderTop: '1px solid var(--gray-200)', paddingTop: '16px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--navy)', marginBottom: '12px' }}>
+                    Event Header &amp; Metadata
+                  </div>
+                  <div className="info-grid">
+                    <div className="info-item">
+                      <label className="info-label">Event ID</label>
+                      <input
+                        type="text"
+                        className="info-input"
+                        value={evtId}
+                        onChange={(e) => setEvtId(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Transaction ID</label>
+                      <input
+                        type="text"
+                        className="info-input"
+                        value={txnId}
+                        onChange={(e) => setTxnId(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Event Type</label>
+                      <input
+                        type="text"
+                        className="info-input"
+                        value={evtType}
+                        onChange={(e) => setEvtType(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Source System</label>
+                      <input type="text" className="info-input" value="PAS" disabled />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--gray-200)', paddingTop: '16px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--navy)', marginBottom: '12px' }}>
+                    Policy &amp; Invoice Reference
+                  </div>
+                  <div className="info-grid">
+                    <div className="info-item">
+                      <label className="info-label">Policy Number</label>
+                      <input
+                        type="text"
+                        className="info-input"
+                        value={polNum}
+                        onChange={(e) => setPolNum(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Invoice Number</label>
+                      <input
+                        type="text"
+                        className="info-input"
+                        value={invNum}
+                        onChange={(e) => setInvNum(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Line of Business (LOB)</label>
+                      <select
+                        className="info-input"
+                        value={lob}
+                        onChange={(e) => setLob(e.target.value)}
+                      >
+                        <option>Commercial Trucking</option>
+                        <option>Commercial Auto</option>
+                        <option>General Liability</option>
+                        <option>Commercial Property</option>
+                        <option>Inland Marine</option>
+                      </select>
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">State</label>
+                      <input
+                        type="text"
+                        className="info-input"
+                        value={stateCode}
+                        onChange={(e) => setStateCode(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--gray-200)', paddingTop: '16px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--navy)', marginBottom: '12px' }}>
+                    Parties Information
+                  </div>
+                  <div className="info-grid">
+                    <div className="info-item">
+                      <label className="info-label">Named Insured</label>
+                      <input
+                        type="text"
+                        className="info-input"
+                        value={insuredName}
+                        onChange={(e) => setInsuredName(e.target.value)}
+                        required
+                      />
+                    </div>
+                    {visibleParties.includes('broker') && (
+                      <div className="info-item">
+                        <label className="info-label">Producer / Broker</label>
+                        <select
+                          className="info-input"
+                          value={brokerName}
+                          onChange={(e) => setBrokerName(e.target.value)}
+                        >
+                          {!BROKER_OPTIONS.includes(brokerName) && <option value={brokerName}>{brokerName}</option>}
+                          {BROKER_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    {visibleParties.includes('carrier') && (
+                      <div className="info-item">
+                        <label className="info-label">Carrier Name</label>
+                        <select
+                          className="info-input"
+                          value={carrierName}
+                          onChange={(e) => setCarrierName(e.target.value)}
+                        >
+                          {!CARRIER_OPTIONS.includes(carrierName) && <option value={carrierName}>{carrierName}</option>}
+                          {CARRIER_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    {visibleParties.includes('mga') && (
+                      <div className="info-item">
+                        <label className="info-label">MGA Name</label>
+                        <select
+                          className="info-input"
+                          value={mgaName}
+                          onChange={(e) => setMgaName(e.target.value)}
+                        >
+                          {!MGA_OPTIONS.includes(mgaName) && <option value={mgaName}>{mgaName}</option>}
+                          {MGA_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--gray-200)', paddingTop: '16px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--navy)', marginBottom: '12px' }}>
+                    Financial Parameters
+                  </div>
+                  <div className="info-grid">
+                    <div className="info-item">
+                      <label className="info-label">Carrier Base Premium ($)</label>
+                      <input
+                        type="number"
+                        className="info-input"
+                        value={premium}
+                        onChange={(e) => setPremium(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Texas Surplus Tax &amp; Fees ($)</label>
+                      <input
+                        type="number"
+                        className="info-input"
+                        value={taxAndFees}
+                        onChange={(e) => setTaxAndFees(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Producer / Broker Commission ($)</label>
+                      <input
+                        type="number"
+                        className="info-input"
+                        value={commission}
+                        onChange={(e) => setCommission(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Payment Amount ($)</label>
+                      <input
+                        type="number"
+                        className="info-input"
+                        value={paymentAmount}
+                        onChange={(e) => setPaymentAmount(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--gray-200)', paddingTop: '16px', marginBottom: '20px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--navy)', marginBottom: '12px' }}>
+                    Transaction Dates
+                  </div>
+                  <div className="info-grid">
+                    <div className="info-item">
+                      <label className="info-label">Transaction / Invoice Date</label>
+                      <input
+                        type="date"
+                        className="info-input"
+                        value={dateTx}
+                        onChange={(e) => setDateTx(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="info-item">
+                      <label className="info-label">Effective Date</label>
+                      <input
+                        type="date"
+                        className="info-input"
+                        value={dateEff}
+                        onChange={(e) => setDateEff(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={currentPresetInjected}
+                  style={{ width: '100%', padding: '12px', fontWeight: 700, opacity: currentPresetInjected ? 0.5 : 1, cursor: currentPresetInjected ? 'not-allowed' : 'pointer' }}
+                >
+                  {currentPresetInjected ? '✓ Already Injected' : '⚡ Inject Event into Rules Engine'}
+                </button>
+              </form>
+            </div>
+
+            {/* Right Column: Live Event JSON Preview */}
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--navy)', marginBottom: '10px' }}>
+                Event Payload JSON Preview
+              </div>
+              <pre
+                className="json-preview-container"
+                dangerouslySetInnerHTML={{ __html: highlightJson(currentPayload) }}
+              />
+              <div style={{ fontSize: '11px', color: 'var(--gray-500)', marginTop: '8px' }}>
+                * Note: Live changes update the JSON payload above in real-time. Injected events undergo Section 10 validations.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 2: Intake Event Log */}
+      {activeTab === 'intake' && (
+        <div className="pas-panel active">
+          <div className="form-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div className="panel-title" style={{ marginBottom: 0 }}>Intake Event Log &amp; Queue Status</div>
+              <button
+                className="btn btn-outline btn-xs"
+                onClick={() => {
+                  if (window.confirm('Clear event logs history?')) {
+                    setEvents([]);
+                    showToast('Event logs cleared.');
+                  }
+                }}
+              >
+                Clear Log History
+              </button>
+            </div>
+
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Event ID</th>
+                    <th>Event Type</th>
+                    <th>Invoice / TX Date</th>
+                    <th>Policy / Invoice Ref</th>
+                    <th>Insured</th>
+                    <th>Total Amount</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', color: 'var(--gray-400)', padding: '24px' }}>
+                        No events recorded. Set presets and click "Inject Event" to start.
+                      </td>
+                    </tr>
+                  ) : (
+                    events.map((e) => {
+                      const total = (parseFloat(e.financials?.premium) || 0) + (parseFloat(e.financials?.tax_and_fees) || 0);
+                      return (
+                        <tr key={e.event_id + (e.timestamp || '')}>
+                          <td style={{ fontWeight: 600, color: 'var(--navy)' }}>{e.event_id}</td>
+                          <td><strong>{e.event_type}</strong></td>
+                          <td>{e.dates?.transaction_date}</td>
+                          <td>
+                            {e.policy?.policy_number}{' '}
+                            <span style={{ fontSize: '11px', color: 'var(--gray-500)' }}>
+                              ({e.invoice_number || 'INV-V8NHT-1'})
+                            </span>
+                          </td>
+                          <td>{e.parties?.insured_name}</td>
+                          <td>${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                          <td>
+                            <span className={`status-badge st-${(e.status || 'received').toLowerCase()}`}>
+                              {e.status}
+                            </span>
+                          </td>
+                          <td>
+                            <button className="btn btn-outline btn-xs" onClick={() => setSelectedEventModal(e)}>
+                              View details
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Exception Queue */}
+      {activeTab === 'exceptions' && (
+        <div className="pas-panel active">
+          <div className="form-card">
+            <div className="panel-title">Validation Exceptions &amp; Resolution Queue</div>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Event ID</th>
+                    <th>Event Type</th>
+                    <th>Policy Number</th>
+                    <th>Failed Reason / Error Logs</th>
+                    <th>Timestamp</th>
+                    <th>Resolution Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.filter(e => e.status === 'FAILED').length === 0 ? (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: 'center', color: 'var(--gray-400)', padding: '24px' }}>
+                        No validation failures found. Systems are clean.
+                      </td>
+                    </tr>
+                  ) : (
+                    events
+                      .filter(e => e.status === 'FAILED')
+                      .map((e, idx) => (
+                        <tr key={idx}>
+                          <td style={{ fontWeight: 600, color: '#c62828' }}>{e.event_id}</td>
+                          <td><strong>{e.event_type}</strong></td>
+                          <td>{e.policy?.policy_number}</td>
+                          <td style={{ color: '#c62828', fontSize: '12px', fontWeight: 500 }}>
+                            {e.errors.map((err, i) => (
+                              <div key={i}>&bull; {err}</div>
+                            ))}
+                          </td>
+                          <td>{new Date(e.timestamp).toLocaleTimeString()}</td>
+                          <td>
+                            <button
+                              className="btn btn-primary btn-xs"
+                              onClick={() => handleRetryFailed(e)}
+                            >
+                              Edit &amp; Retry
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: Policies Register */}
+      {activeTab === 'register' && (
+        <div className="pas-panel active">
+          <div className="form-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="panel-title">Active Policy Contracts</div>
+              <div>
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  ref={policyFileInputRef}
+                  onChange={handlePolicyFileSelected}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => policyFileInputRef.current?.click()}
+                >
+                  ⬆ Upload Policy JSON
+                </button>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Policy Number</th>
+                    <th>Insured Name</th>
+                    <th>Effective Date</th>
+                    <th>Total Premium</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {policies.map((p) => (
+                    <tr key={p.number}>
+                      <td style={{ fontWeight: 600, color: 'var(--navy)' }}>{p.number}</td>
+                      <td><strong>{p.name}</strong></td>
+                      <td>{p.date}</td>
+                      <td>${Number(p.premium).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                      <td><span className="status-badge st-posted">{p.status}</span></td>
+                      <td>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => handleLoadFromRegister(p)}
+                        >
+                          Inject Actions
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Event Details Modal */}
+      {selectedEventModal && (
+        <div
+          className="pas-modal open"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedEventModal(null);
+          }}
+        >
+          <div className="pas-modal-content">
+            <div className="pas-modal-header">
+              <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--navy)' }}>
+                Intake Event Details: {selectedEventModal.event_id} ({selectedEventModal.policy?.policy_number})
+              </div>
+              <button className="pas-modal-close" onClick={() => setSelectedEventModal(null)}>
+                &times;
+              </button>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: '8px' }}>
+                JSON Payload
+              </div>
+              <pre
+                className="json-preview-container"
+                style={{ maxHeight: '260px' }}
+                dangerouslySetInnerHTML={{ __html: highlightJson(selectedEventModal) }}
+              />
+
+              <div style={{ borderTop: '1px solid var(--gray-200)', paddingTop: '16px', marginTop: '16px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Resulting General Ledger Journal {selectedEventModal.jeGroups?.length > 1 ? 'Entries (one per book)' : 'Entry'}
+                </div>
+                {selectedEventModal.jeNumber && selectedEventModal.jeLines?.length > 0 ? (
+                  (selectedEventModal.jeGroups && selectedEventModal.jeGroups.length > 0
+                    ? selectedEventModal.jeGroups
+                    : [{ entity: null, jeNumber: selectedEventModal.jeNumber, lines: selectedEventModal.jeLines }]
+                  ).map((group, gIdx) => (
+                    <div key={gIdx} style={{ marginBottom: gIdx < (selectedEventModal.jeGroups?.length || 1) - 1 ? '16px' : 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12.5px', fontWeight: 700 }}>
+                        <span>Journal Entry: {group.jeNumber}{group.entity ? ` — ${group.entity.name}` : ''}</span>
+                        <span>Status: <span className={selectedEventModal.jeGroups ? 'badge badge-draft' : 'badge badge-green'} style={{ fontSize: '9.5px' }}>{selectedEventModal.jeGroups ? 'DRAFT' : 'POSTED'}</span></span>
+                      </div>
+                      <div className="journal-box" style={{ marginTop: 0 }}>
+                        <div className="journal-row header">
+                          <span>Account Code &amp; Name</span>
+                          <span>Debit</span>
+                          <span>Credit</span>
+                        </div>
+                        {group.lines.map((l, idx) => (
+                          <div className="journal-row" key={idx}>
+                            <span>{l.acct} - {l.desc}</span>
+                            {l.debit > 0 ? (
+                              <span className="dr">${l.debit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                            ) : (
+                              <span></span>
+                            )}
+                            {l.credit > 0 ? (
+                              <span className="cr">${l.credit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                            ) : (
+                              <span></span>
+                            )}
+                          </div>
+                        ))}
+                        <div className="journal-row" style={{ fontWeight: 700, borderTop: '1px solid var(--gray-300)', marginTop: '6px', paddingTop: '4px' }}>
+                          <span>Total Balanced</span>
+                          <span>
+                            ${group.lines
+                              .reduce((s, l) => s + (l.debit || 0), 0)
+                              .toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </span>
+                          <span>
+                            ${group.lines
+                              .reduce((s, l) => s + (l.credit || 0), 0)
+                              .toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ fontSize: '12.5px', color: 'var(--gray-500)', padding: '10px 0' }}>
+                    No Journal Entry posted for this event (State: {selectedEventModal.status}).
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

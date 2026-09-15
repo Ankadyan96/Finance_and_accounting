@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="vdMonogramGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F97316" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="6" fill="#22262E" />
+  <path d="M7 10L13 22L17 14" stroke="url(#vdMonogramGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M17 10H21C23.76 10 26 12.24 26 15C26 17.76 23.76 20 21 20H17V10Z" stroke="url(#vdMonogramGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
