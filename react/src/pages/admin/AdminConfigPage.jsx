@@ -11,30 +11,7 @@ export function AdminConfigPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Whether the Login screen offers Domino's Pizza as a second accounting
-  // level alongside Insurance. Read directly from localStorage by
-  // LoginPage.jsx (a pre-auth page, so it can't go through an API call) —
-  // this is the single source of truth for that toggle.
-  const [showPizzaLogin, setShowPizzaLogin] = useState(() => {
-    try {
-      return localStorage.getItem('v_show_pizza_login') === 'true';
-    } catch {
-      return false;
-    }
-  });
 
-  const togglePizzaLogin = () => {
-    setShowPizzaLogin(prev => {
-      const next = !prev;
-      try {
-        localStorage.setItem('v_show_pizza_login', String(next));
-      } catch {
-        // ignore storage write failures
-      }
-      showToast(`Domino's Pizza demo ${next ? 'shown' : 'hidden'} on the Login screen`, next ? 'success' : 'info');
-      return next;
-    });
-  };
 
   /* ---------------- TAB 1: MODULE CATALOGUE ---------------- */
   const GROUP_ORDER = [
@@ -344,34 +321,6 @@ export function AdminConfigPage() {
 
       {/* TAB 1: MODULE CATALOGUE */}
       {activeTab === 'modules' && (
-        <>
-        <div className="card" style={{ padding: '20px', marginBottom: '16px' }}>
-          <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-ink)', marginBottom: '4px' }}>
-            Login Screen Options
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginBottom: '16px' }}>
-            Controls which accounting-level demos are offered on the sign-in page, before anyone logs in.
-          </div>
-          <div className="v-module-card" style={{ maxWidth: '420px' }}>
-            <div className="v-module-card-top">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div className="v-module-card-icon">🍕</div>
-                <div className="v-module-card-title">Domino's Pizza demo on Login</div>
-              </div>
-              <label className="v-switch">
-                <input
-                  type="checkbox"
-                  checked={showPizzaLogin}
-                  onChange={togglePizzaLogin}
-                />
-                <span className="v-slider" />
-              </label>
-            </div>
-            <div className="v-module-card-desc">
-              When off, the Login screen only offers Insurance and skips straight past the accounting-level picker.
-            </div>
-          </div>
-        </div>
         <div className="card" style={{ padding: '20px' }}>
           <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-ink)', marginBottom: '4px' }}>
             Module Catalogue
@@ -423,7 +372,6 @@ export function AdminConfigPage() {
             );
           })}
         </div>
-        </>
       )}
 
       {/* TAB 2: DIMENSION MANAGER */}

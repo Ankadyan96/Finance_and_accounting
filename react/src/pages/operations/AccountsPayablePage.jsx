@@ -672,32 +672,42 @@ export function AccountsPayablePage() {
         </div>
       )}
 
-      {/* Sub-tabs Navigation */}
-      <div className="sub-tabbar">
-        <button
-          className={`sub-tab ${activeTab === 'ap-invoices' ? 'active' : ''}`}
-          onClick={() => selectTab('ap-invoices')}
-        >
-          All Invoices
-        </button>
-        <button
-          className={`sub-tab ${activeTab === 'ap-ach' ? 'active' : ''}`}
-          onClick={() => selectTab('ap-ach')}
-        >
-          ACH Payments
-        </button>
-        <button
-          className={`sub-tab ${activeTab === 'ap-echecks' ? 'active' : ''}`}
-          onClick={() => selectTab('ap-echecks')}
-        >
-          E-Checks
-        </button>
-        <button
-          className={`sub-tab ${activeTab === 'ap-aging' ? 'active' : ''}`}
-          onClick={() => selectTab('ap-aging')}
-        >
-          AP Aging
-        </button>
+      {/* Tabs Container matching Financial Statements tabs UI */}
+      <div className="ap-tabs-wrap">
+        <div className="ap-tabbar">
+          <button
+            type="button"
+            className={`ap-tab ${activeTab === 'ap-invoices' ? 'active' : ''}`}
+            onClick={() => selectTab('ap-invoices')}
+          >
+            All Invoices
+          </button>
+          <button
+            type="button"
+            className={`ap-tab ${activeTab === 'ap-ach' ? 'active' : ''}`}
+            onClick={() => selectTab('ap-ach')}
+          >
+            ACH Payments
+          </button>
+          <button
+            type="button"
+            className={`ap-tab ${activeTab === 'ap-echecks' ? 'active' : ''}`}
+            onClick={() => selectTab('ap-echecks')}
+          >
+            E-Checks
+          </button>
+          <button
+            type="button"
+            className={`ap-tab ${activeTab === 'ap-aging' ? 'active' : ''}`}
+            onClick={() => selectTab('ap-aging')}
+          >
+            AP Aging
+          </button>
+          <div className="period-chip" style={{ marginLeft: 'auto', paddingRight: '16px', display: 'flex', alignItems: 'center', fontSize: '11px', color: 'var(--color-muted)' }}>
+            <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: 'var(--color-success)', marginRight: '6px' }}></span>
+            Period: May 2026
+          </div>
+        </div>
       </div>
 
       {/* TAB 1: ALL INVOICES */}

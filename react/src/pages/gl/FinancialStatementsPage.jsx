@@ -127,30 +127,46 @@ export function FinancialStatementsPage() {
         </button>
       </div>
 
-      {/* KPI Summary Cards matching Screenshot 2 */}
-      <div className="fs-kpi-row" id="fs-kpi-row">
-        <div className="fs-kpi k-asset">
-          <div className="fs-kpi-lbl">TOTAL ASSETS</div>
-          <div className="fs-kpi-val">{fCr(liveData.totalAssets)}</div>
-          <div className="fs-kpi-sub">Live General Ledger</div>
+      {/* KPI Summary Cards matching VeriDex UI Design System (.vdx-kpi-card) */}
+      <div className="vdx-grid vdx-grid--4" id="fs-kpi-row" style={{ marginBottom: '16px' }}>
+        <div className="vdx-kpi-card">
+          <div className="vdx-kpi-card__label">Total Assets</div>
+          <div className="vdx-kpi-card__value">{fCr(liveData.totalAssets)}</div>
+          <div className="vdx-kpi-card__trend vdx-kpi-card__trend--up">
+            <span>↑</span>
+            <span>+12.4%</span>
+            <span className="vdx-kpi-card__period">vs last month</span>
+          </div>
         </div>
 
-        <div className="fs-kpi k-liab">
-          <div className="fs-kpi-lbl">TOTAL LIABILITIES</div>
-          <div className="fs-kpi-val">{fCr(liveData.totalLiab)}</div>
-          <div className="fs-kpi-sub">Live General Ledger</div>
+        <div className="vdx-kpi-card">
+          <div className="vdx-kpi-card__label">Total Liabilities</div>
+          <div className="vdx-kpi-card__value">{fCr(liveData.totalLiab)}</div>
+          <div className="vdx-kpi-card__trend vdx-kpi-card__trend--up">
+            <span>↑</span>
+            <span>+3.2%</span>
+            <span className="vdx-kpi-card__period">vs last month</span>
+          </div>
         </div>
 
-        <div className="fs-kpi k-equity">
-          <div className="fs-kpi-lbl">TOTAL EQUITY</div>
-          <div className="fs-kpi-val">{fCr(liveData.totalEquity)}</div>
-          <div className="fs-kpi-sub">Live General Ledger</div>
+        <div className="vdx-kpi-card">
+          <div className="vdx-kpi-card__label">Total Equity</div>
+          <div className="vdx-kpi-card__value">{fCr(liveData.totalEquity)}</div>
+          <div className="vdx-kpi-card__trend vdx-kpi-card__trend--down">
+            <span>↓</span>
+            <span>-2.1%</span>
+            <span className="vdx-kpi-card__period">vs last month</span>
+          </div>
         </div>
 
-        <div className="fs-kpi k-income">
-          <div className="fs-kpi-lbl">NET INCOME</div>
-          <div className="fs-kpi-val good">{fCr(liveData.netIncomeLive)}</div>
-          <div className="fs-kpi-sub">Live General Ledger</div>
+        <div className="vdx-kpi-card">
+          <div className="vdx-kpi-card__label">Net Income</div>
+          <div className="vdx-kpi-card__value">{fCr(liveData.netIncomeLive)}</div>
+          <div className="vdx-kpi-card__trend vdx-kpi-card__trend--up">
+            <span>↑</span>
+            <span>+8.7%</span>
+            <span className="vdx-kpi-card__period">vs last month</span>
+          </div>
         </div>
       </div>
 

@@ -358,9 +358,17 @@ export function JournalEntryPage() {
                         {creditTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td>
-                        <span className={`badge ${isDraft ? 'badge-gray' : 'badge-green'}`}>
-                          {(je.status || 'posted').toUpperCase()}
-                        </span>
+                        {isDraft ? (
+                          <span className="status-pill status-pill-draft">
+                            <span className="status-pill-dot" />
+                            Draft
+                          </span>
+                        ) : (
+                          <span className="status-pill status-pill-posted">
+                            <span className="status-pill-dot" />
+                            Posted
+                          </span>
+                        )}
                       </td>
                       <td>
                         {isDraft ? (
@@ -741,9 +749,17 @@ export function JournalEntryPage() {
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
                     Journal Entry: {selectedEntry.number || selectedEntry.id}
                   </h3>
-                  <span className={`badge ${(selectedEntry.status || '').toLowerCase() === 'draft' ? 'badge-gray' : 'badge-green'}`}>
-                    {(selectedEntry.status || 'posted').toUpperCase()}
-                  </span>
+                  {(selectedEntry.status || '').toLowerCase() === 'draft' ? (
+                    <span className="status-pill status-pill-draft">
+                      <span className="status-pill-dot" />
+                      Draft
+                    </span>
+                  ) : (
+                    <span className="status-pill status-pill-posted">
+                      <span className="status-pill-dot" />
+                      Posted
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginTop: '3px' }}>
                   {selectedEntry.description} &middot; Date: {formatDateUK(selectedEntry.date)}

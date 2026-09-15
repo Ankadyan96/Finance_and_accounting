@@ -47,37 +47,7 @@ export function HomeDashboard() {
         </div>
       </div>
 
-      {/* KPI Stats Row */}
-      <div className="stats-row" id="home-stats">
-        <div className="stat-card">
-          <div className="stat-icon">✓</div>
-          <div className="stat-info">
-            <div className="stat-value">{visibleModules.length}</div>
-            <div className="stat-label">Modules active</div>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon">◈</div>
-          <div className="stat-info">
-            <div className="stat-value">4</div>
-            <div className="stat-label">Entities registered</div>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon">%</div>
-          <div className="stat-info">
-            <div className="stat-value">92%</div>
-            <div className="stat-label">Setup readiness</div>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon">★</div>
-          <div className="stat-info">
-            <div className="stat-value">Published</div>
-            <div className="stat-label">System version 7</div>
-          </div>
-        </div>
-      </div>
+      
 
       {/* Dashboard Two-Column Layout */}
       <div className="v-dashboard-layout">

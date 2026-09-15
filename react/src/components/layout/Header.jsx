@@ -46,16 +46,38 @@ export function Header() {
   const { currentUser, activeEntity, switchRole, allUsers, logout, accountingLevel, setAccountingLevel } = useAuth();
   const bType = currentUser?.businessType || activeEntity?.businessType || 'mga';
 
-  // Same flag as the Login screen's "Login Screen Options" toggle
-  // (Configuration Centre) — when Domino's Pizza is hidden from login,
-  // there's no reason to offer a runtime switch into it here either.
-  const [showPizzaMode] = useState(() => {
+  // Flag for Domino's Pizza demo on Login & Accounting switcher
+  const [showPizzaLogin, setShowPizzaLogin] = useState(() => {
     try {
       return localStorage.getItem('v_show_pizza_login') === 'true';
     } catch {
       return false;
     }
   });
+
+  const togglePizzaLogin = (checked) => {
+    setShowPizzaLogin(checked);
+    try {
+      localStorage.setItem('v_show_pizza_login', String(checked));
+      window.dispatchEvent(new Event('veridex:pizza-login-changed'));
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    const handleSync = () => {
+      try {
+        setShowPizzaLogin(localStorage.getItem('v_show_pizza_login') === 'true');
+      } catch {}
+    };
+    window.addEventListener('veridex:pizza-login-changed', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('veridex:pizza-login-changed', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
   const {
     currentTheme,
     changeTheme,
@@ -230,8 +252,8 @@ export function Header() {
       {/* Right zone: Actions */}
       <div className="header-actions">
         {/* Accounting Level Switcher Badge (Insurance vs Domino's Pizza) —
-            only shown when Pizza mode is enabled (see showPizzaMode above) */}
-        {showPizzaMode && (
+            only shown when Pizza mode is enabled */}
+        {showPizzaLogin && (
         <div style={{ position: 'relative' }}>
           <button
             type="button"
@@ -250,9 +272,9 @@ export function Header() {
               borderRadius: '20px',
               fontSize: '11.5px',
               fontWeight: 700,
-              border: accountingLevel === 'pizza' ? '1px solid var(--vdx-primitive-orange-200)' : '1px solid var(--vdx-primitive-blue-200)',
-              background: accountingLevel === 'pizza' ? 'var(--vdx-color-action-primary-subtle)' : 'var(--vdx-primitive-blue-050)',
-              color: accountingLevel === 'pizza' ? 'var(--vdx-primitive-orange-700)' : 'var(--vdx-primitive-blue-700)',
+              border: accountingLevel === 'pizza' ? '1px solid rgba(249, 115, 22, 0.4)' : '1px solid rgba(59, 130, 246, 0.4)',
+              background: accountingLevel === 'pizza' ? 'rgba(249, 115, 22, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+              color: accountingLevel === 'pizza' ? '#fb923c' : '#60a5fa',
               cursor: 'pointer',
               height: '32px',
               transition: 'all 0.2s ease'
@@ -260,7 +282,7 @@ export function Header() {
           >
             <span>{accountingLevel === 'pizza' ? '🍕' : '🛡️'}</span>
             <span>{accountingLevel === 'pizza' ? "Domino's Pizza" : 'Insurance'}</span>
-            <span style={{ fontSize: '10px', opacity: 0.7, padding: '1px 5px', borderRadius: '8px', background: 'rgba(0,0,0,0.06)' }}>
+            <span style={{ fontSize: '10px', opacity: 0.8, padding: '1px 5px', borderRadius: '8px', background: 'rgba(255,255,255,0.1)' }}>
               ⇄ Switch
             </span>
           </button>
@@ -282,9 +304,9 @@ export function Header() {
               borderRadius: '20px',
               fontSize: '11.5px',
               fontWeight: 600,
-              border: isDbConnected ? '1px solid var(--vdx-color-status-success-border)' : '1px solid var(--vdx-color-status-warning-border)',
-              background: isDbConnected ? 'var(--vdx-color-status-success-bg)' : 'var(--vdx-color-status-warning-bg)',
-              color: isDbConnected ? 'var(--vdx-color-status-success-text)' : 'var(--vdx-color-status-warning-text)',
+              border: isDbConnected ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(245, 158, 11, 0.4)',
+              background: isDbConnected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+              color: isDbConnected ? '#34d399' : '#fbbf24',
               cursor: 'pointer',
               height: '32px'
             }}
@@ -598,6 +620,20 @@ export function Header() {
                   className="v-density-checkbox"
                   checked={showGlSimulation === null ? bType !== 'carrier' : showGlSimulation}
                   onChange={(e) => toggleGlSimulation(e.target.checked)}
+                />
+                <span className="v-density-switch"></span>
+              </label>
+
+              <label className="v-density-toggle-item">
+                <div className="v-density-toggle-info">
+                  <div className="v-toggle-title">Domino's Pizza demo on Login</div>
+                  <div className="v-toggle-desc">Offer Domino's Pizza demo on the sign-in page</div>
+                </div>
+                <input
+                  type="checkbox"
+                  className="v-density-checkbox"
+                  checked={showPizzaLogin}
+                  onChange={(e) => togglePizzaLogin(e.target.checked)}
                 />
                 <span className="v-density-switch"></span>
               </label>

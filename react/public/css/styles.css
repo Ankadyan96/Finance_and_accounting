@@ -569,13 +569,22 @@ h1, h2, h3, h4, h5, h6 {
   gap: 10px;
 }
 
-.nav-item:hover {
+.sidebar a,
+.sidebar a:visited,
+.nav-item,
+.nav-item:visited {
+  color: var(--color-muted);
+}
+
+.nav-item:hover,
+.nav-item:hover:visited {
   background-color: var(--color-shell-accent);
   color: #FFFFFF;
   text-decoration: none;
 }
 
-.nav-item.active {
+.nav-item.active,
+.nav-item.active:visited {
   color: var(--color-brand);
   font-weight: 600;
   background-color: rgba(255, 247, 237, 0.12);
@@ -613,7 +622,7 @@ h1, h2, h3, h4, h5, h6 {
   overflow: hidden;
   opacity: 0;
   transition: max-height 0.25s ease, opacity 0.2s ease;
-  background: rgba(0, 0, 0, 0.15);
+  background: transparent;
 }
 .nav-sub.open {
   max-height: 480px;
@@ -736,15 +745,22 @@ body.sb-collapsed .main-content {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.breadcrumb-item {
+.breadcrumb-item,
+.breadcrumb-item:visited,
+.breadcrumb-nav a,
+.breadcrumb-nav a:visited {
   color: var(--color-brand);
   text-decoration: none;
   font-weight: 500;
   transition: opacity var(--transition);
 }
-.breadcrumb-item:hover {
+.breadcrumb-item:hover,
+.breadcrumb-item:hover:visited,
+.breadcrumb-nav a:hover,
+.breadcrumb-nav a:hover:visited {
   text-decoration: underline;
   opacity: 0.85;
+  color: var(--color-brand);
 }
 .breadcrumb-item.current {
   color: #FFFFFF;

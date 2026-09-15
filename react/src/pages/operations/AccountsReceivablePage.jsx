@@ -586,55 +586,94 @@ export function AccountsReceivablePage() {
         </div>
       )}
 
-      {/* Sub-tabs Navigation */}
-      <div className="sub-tabbar">
-        <button
-          className={`sub-tab ${activeTab === 'ar-register' ? 'active' : ''}`}
-          onClick={() => selectTab('ar-register')}
-        >
-          Receivables Register
-        </button>
-        <button
-          className={`sub-tab ${activeTab === 'ar-aging' ? 'active' : ''}`}
-          onClick={() => selectTab('ar-aging')}
-        >
-          AR Aging
-        </button>
-        <button
-          className={`sub-tab ${activeTab === 'ar-statements' ? 'active' : ''}`}
-          onClick={() => selectTab('ar-statements')}
-        >
-          Statements
-        </button>
-      </div>
+      {/* Tabs Container matching Financial Statements tabs UI */}
+      <div className="ar-tabs-wrap">
+        <div className="ar-tabbar">
+          <button
+            type="button"
+            className={`ar-tab ${activeTab === 'ar-register' ? 'active' : ''}`}
+            onClick={() => selectTab('ar-register')}
+          >
+            Receivables Register
+          </button>
+          <button
+            type="button"
+            className={`ar-tab ${activeTab === 'ar-aging' ? 'active' : ''}`}
+            onClick={() => selectTab('ar-aging')}
+          >
+            AR Aging
+          </button>
+          <button
+            type="button"
+            className={`ar-tab ${activeTab === 'ar-statements' ? 'active' : ''}`}
+            onClick={() => selectTab('ar-statements')}
+          >
+            Statements
+          </button>
 
-      {/* TAB 1: RECEIVABLES REGISTER */}
-      {activeTab === 'ar-register' && (
-        <div className="tbl-wrap">
-          <div className="tbl-hdr">
-            <span className="tbl-hdr-title">Receivables Register</span>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                className="form-ctrl form-ctrl-sm"
-                placeholder="Search invoice or partner…"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{ width: '220px' }}
-              />
+          {/* Action bar aligned to the right inside the tab bar */}
+          <div className="ar-tabbar-actions">
+            {activeTab === 'ar-register' && (
+              <>
+                <input
+                  className="form-ctrl form-ctrl-sm"
+                  placeholder="Search invoice or partner…"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={{ width: '220px', height: '30px', fontSize: '12px' }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => {
+                    const csv = "Invoice #,Partner,Amount,Paid,Balance,DueDate,Status\n" +
+                      filteredInvoices.map(i => `${i.id},"${i.customer}",${i.amount},${i.paidAmount},${i.amount - i.paidAmount},${i.dueDate},${i.status}`).join("\n");
+                    downloadCSV('ar-register.csv', csv);
+                    showToast('Exported ar-register.csv', 'success');
+                  }}
+                >
+                  Export
+                </button>
+              </>
+            )}
+            {activeTab === 'ar-aging' && (
               <button
+                type="button"
                 className="btn btn-outline btn-sm"
                 onClick={() => {
-                  const csv = "Invoice #,Partner,Amount,Paid,Balance,DueDate,Status\n" +
-                    filteredInvoices.map(i => `${i.id},"${i.customer}",${i.amount},${i.paidAmount},${i.amount - i.paidAmount},${i.dueDate},${i.status}`).join("\n");
-                  downloadCSV('ar-register.csv', csv);
-                  showToast('Exported ar-register.csv', 'success');
+                  const csv = "Partner,0-30 Days,31-60 Days,61-90 Days,90+ Days,Total\n" +
+                    agingPartners.map(p => `"${p.name}",${p.a0_30},${p.a31_60},${p.a61_90},${p.a90_plus},${p.total}`).join("\n");
+                  downloadCSV('ar-aging-summary.csv', csv);
+                  showToast('Exported ar-aging-summary.csv', 'success');
                 }}
               >
                 Export
               </button>
-            </div>
+            )}
+            {activeTab === 'ar-statements' && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => showToast('Statements compiled for all accounts', 'success')}
+                >
+                  Generate All
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => showToast('Statements emailed to all active partners', 'success')}
+                >
+                  Email All
+                </button>
+              </>
+            )}
           </div>
-          <table>
+        </div>
+
+        {/* TAB 1: RECEIVABLES REGISTER */}
+        {activeTab === 'ar-register' && (
+          <table className="ar-table">
             <thead>
               <tr>
                 <th>Invoice #</th>
@@ -693,6 +732,7 @@ export function AccountsReceivablePage() {
                     <td>
                       {bal > 0 ? (
                         <button
+                          type="button"
                           className="btn btn-primary btn-sm"
                           style={{ padding: '3px 8px', fontSize: '11px' }}
                           onClick={() => setPaymentModal({
@@ -714,27 +754,11 @@ export function AccountsReceivablePage() {
               })}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
 
-      {/* TAB 2: AR AGING */}
-      {activeTab === 'ar-aging' && (
-        <div className="tbl-wrap">
-          <div className="tbl-hdr">
-            <span className="tbl-hdr-title">AR Aging Summary by Partner</span>
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={() => {
-                const csv = "Partner,0-30 Days,31-60 Days,61-90 Days,90+ Days,Total\n" +
-                  agingPartners.map(p => `"${p.name}",${p.a0_30},${p.a31_60},${p.a61_90},${p.a90_plus},${p.total}`).join("\n");
-                downloadCSV('ar-aging-summary.csv', csv);
-                showToast('Exported ar-aging-summary.csv', 'success');
-              }}
-            >
-              Export
-            </button>
-          </div>
-          <table>
+        {/* TAB 2: AR AGING */}
+        {activeTab === 'ar-aging' && (
+          <table className="ar-table">
             <thead>
               <tr>
                 <th>Partner / Agent</th>
@@ -749,7 +773,7 @@ export function AccountsReceivablePage() {
               {agingPartners.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--gray-400)', fontSize: '12.5px' }}>
-                    No outstanding balances to age yet.
+                    No aging records to display.
                   </td>
                 </tr>
               ) : (
@@ -776,30 +800,11 @@ export function AccountsReceivablePage() {
               )}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
 
-      {/* TAB 3: STATEMENTS */}
-      {activeTab === 'ar-statements' && (
-        <div className="tbl-wrap">
-          <div className="tbl-hdr">
-            <span className="tbl-hdr-title">Account Statements</span>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => showToast('Statements compiled for all accounts', 'success')}
-              >
-                Generate All
-              </button>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => showToast('Statements emailed to all active partners', 'success')}
-              >
-                Email All
-              </button>
-            </div>
-          </div>
-          <table>
+        {/* TAB 3: STATEMENTS */}
+        {activeTab === 'ar-statements' && (
+          <table className="ar-table">
             <thead>
               <tr>
                 <th>Partner</th>
@@ -829,10 +834,11 @@ export function AccountsReceivablePage() {
                   <td style={{ textAlign: 'right', color: p.total - p.a0_30 > 0 ? '#e65100' : '#2e7d32', fontWeight: 700 }}>
                     {fmtM(p.total - p.a0_30)}
                   </td>
-                  <td>{new Date().toLocaleDateString('en-US')}</td>
+                  <td><span className="badge badge-green">Generated</span></td>
                   <td>
                     <div style={{ display: 'flex', gap: '4px' }}>
                       <button
+                        type="button"
                         className="btn btn-outline btn-sm"
                         style={{ padding: '2px 6px', fontSize: '11px' }}
                         onClick={() => showToast(`Opening statement for ${p.name}`, 'info')}
@@ -840,6 +846,7 @@ export function AccountsReceivablePage() {
                         View
                       </button>
                       <button
+                        type="button"
                         className="btn btn-outline btn-sm"
                         style={{ padding: '2px 6px', fontSize: '11px' }}
                         onClick={() => showToast(`Account statement sent to ${p.name}`, 'success')}
@@ -852,8 +859,8 @@ export function AccountsReceivablePage() {
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

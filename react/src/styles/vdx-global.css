@@ -190,8 +190,8 @@
   --vdx-color-nav-item-hover-bg:   var(--vdx-primitive-navy-800);
   --vdx-color-nav-border:          var(--vdx-primitive-navy-800);
   --vdx-color-nav-group-label:     var(--vdx-primitive-navy-400);
-  --vdx-color-topbar-bg:           var(--vdx-primitive-neutral-000);
-  --vdx-color-topbar-border:       var(--vdx-primitive-neutral-200);
+  --vdx-color-topbar-bg:           var(--vdx-color-nav-bg);
+  --vdx-color-topbar-border:       var(--vdx-color-nav-border);
 
   /* Table */
   --vdx-color-table-header-bg:     var(--vdx-primitive-neutral-050);
@@ -514,6 +514,15 @@ a:hover {
 
 a:visited {
   color: var(--vdx-color-text-link-visited);
+}
+
+/* Ensure navigation, sidebar, and breadcrumb links are never overridden by document a:visited */
+.sidebar a:visited,
+.nav-item:visited,
+.vdx-nav__item:visited,
+.breadcrumb-item:visited,
+.sidebar-logo-link:visited {
+  color: inherit;
 }
 
 hr {
