@@ -67,7 +67,7 @@
   padding: 10px 14px;
   border: 1px solid var(--gray-300, #d1d5db);
   border-radius: var(--radius, 6px);
-  background: #fff;
+  background: var(--color-panel);
   font-size: 12.5px;
   font-weight: 600;
   color: var(--gray-600, #4b5563);
@@ -79,9 +79,9 @@
   border-color: var(--gray-400, #9ca3af);
 }
 .bud-scenario-btn.active {
-  border-color: #0f6e63;
-  background: #e6f4f1;
-  color: #0f6e63;
+  border-color: var(--color-brand);
+  background: var(--color-brand-light);
+  color: var(--color-brand);
 }
 .bud-industry-card {
   border: 1px dashed var(--gray-300, #d1d5db);
@@ -90,8 +90,8 @@
   background: var(--gray-50, #f9fafb);
 }
 .v-badge-industry-only {
-  background: rgba(201, 121, 31, 0.12);
-  color: #a15b16;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
   font-size: 10px;
   font-weight: 700;
   padding: 2px 8px;

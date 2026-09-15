@@ -3,7 +3,7 @@
 .period-toggle {
   display: flex;
   border: 1px solid var(--gray-300, #cbd5e1);
-  border-radius: 7px;
+  border-radius: var(--radius, 7px);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -13,7 +13,7 @@
   font-size: 12px;
   font-weight: 700;
   border: none;
-  background: #fff;
+  background: var(--color-panel, #fff);
   color: var(--gray-600, #475569);
   cursor: pointer;
   transition: all 0.15s;
@@ -37,10 +37,10 @@
 }
 
 .chart-card {
-  background: white;
+  background: var(--color-panel, white);
   border-radius: var(--radius, 8px);
   box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
   padding: 18px 20px;
 }
 
@@ -60,7 +60,7 @@
   color: var(--gray-400, #94a3b8);
   background: var(--gray-100, #f1f5f9);
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 4px);
 }
 
 .chart-canvas-wrap {
@@ -69,11 +69,11 @@
 }
 
 .stat-card-sm {
-  background: white;
+  background: var(--color-panel, white);
   border-radius: var(--radius, 8px);
   padding: 14px 16px;
   box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
   border-top: 3px solid var(--gray-300, #cbd5e1);
 }
 
@@ -83,7 +83,7 @@
 .stat-card-sm.accent-orange { border-top-color: var(--orange, #e65100); }
 
 .tab-filter-bar {
-  background: white;
+  background: var(--color-panel, white);
   border-radius: 0;
   border-top: 1px solid var(--gray-200, #e2e8f0);
   padding: 10px 16px;
@@ -97,9 +97,9 @@
   max-width: 720px;
   margin: 0 auto;
   border: 1px solid var(--gray-200, #e2e8f0);
-  border-radius: 12px;
+  border-radius: var(--radius-lg, 12px);
   padding: 32px;
-  background: #fff;
+  background: var(--color-panel, #fff);
   font-family: Georgia, 'Times New Roman', serif;
 }
 
@@ -112,7 +112,7 @@
 .pc-pdf-brand-mark {
   width: 34px;
   height: 34px;
-  border-radius: 8px;
+  border-radius: var(--radius, 8px);
   background: var(--navy, #0d1b4b);
   color: #fff;
   display: flex;

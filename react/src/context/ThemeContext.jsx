@@ -4,11 +4,11 @@ export const THEMES = {
   default: {
     id: 'default',
     name: 'Default Orange',
-    color: '#F97316',
-    brand: '#F97316',
-    brandDark: '#EA6A08',
-    brandLight: '#FFF7ED',
-    gradient: 'linear-gradient(135deg, #F97316, #F59E0B)'
+    color: '#f86407',
+    brand: '#f86407',
+    brandDark: '#d95606',
+    brandLight: '#fff4ec',
+    gradient: 'linear-gradient(135deg, #f86407, #f59e0b)'
   },
   blue: {
     id: 'blue',

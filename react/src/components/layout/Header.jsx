@@ -250,9 +250,9 @@ export function Header() {
               borderRadius: '20px',
               fontSize: '11.5px',
               fontWeight: 700,
-              border: accountingLevel === 'pizza' ? '1px solid rgba(249, 115, 22, 0.4)' : '1px solid rgba(37, 99, 235, 0.4)',
-              background: accountingLevel === 'pizza' ? 'rgba(249, 115, 22, 0.12)' : 'rgba(37, 99, 235, 0.12)',
-              color: accountingLevel === 'pizza' ? '#ea580c' : '#2563eb',
+              border: accountingLevel === 'pizza' ? '1px solid var(--vdx-primitive-orange-200)' : '1px solid var(--vdx-primitive-blue-200)',
+              background: accountingLevel === 'pizza' ? 'var(--vdx-color-action-primary-subtle)' : 'var(--vdx-primitive-blue-050)',
+              color: accountingLevel === 'pizza' ? 'var(--vdx-primitive-orange-700)' : 'var(--vdx-primitive-blue-700)',
               cursor: 'pointer',
               height: '32px',
               transition: 'all 0.2s ease'
@@ -282,9 +282,9 @@ export function Header() {
               borderRadius: '20px',
               fontSize: '11.5px',
               fontWeight: 600,
-              border: isDbConnected ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(245, 158, 11, 0.4)',
-              background: isDbConnected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
-              color: isDbConnected ? '#059669' : '#d97706',
+              border: isDbConnected ? '1px solid var(--vdx-color-status-success-border)' : '1px solid var(--vdx-color-status-warning-border)',
+              background: isDbConnected ? 'var(--vdx-color-status-success-bg)' : 'var(--vdx-color-status-warning-bg)',
+              color: isDbConnected ? 'var(--vdx-color-status-success-text)' : 'var(--vdx-color-status-warning-text)',
               cursor: 'pointer',
               height: '32px'
             }}
@@ -294,8 +294,8 @@ export function Header() {
                 width: '7px',
                 height: '7px',
                 borderRadius: '50%',
-                backgroundColor: isDbConnected ? '#10b981' : '#f59e0b',
-                boxShadow: isDbConnected ? '0 0 6px #10b981' : 'none',
+                backgroundColor: isDbConnected ? 'var(--vdx-primitive-green-500)' : 'var(--vdx-primitive-amber-500)',
+                boxShadow: isDbConnected ? '0 0 6px var(--vdx-primitive-green-500)' : 'none',
                 display: 'inline-block'
               }}
             />
@@ -311,14 +311,14 @@ export function Header() {
                 top: 'calc(100% + 8px)',
                 right: 0,
                 width: '280px',
-                background: '#ffffff',
+                background: 'var(--vdx-color-bg-surface)',
                 borderRadius: '8px',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                boxShadow: 'var(--vdx-shadow-lg)',
                 border: '1px solid var(--color-border, #e2e8f0)',
                 padding: '14px',
                 zIndex: 1000,
                 fontSize: '12px',
-                color: '#1e293b'
+                color: 'var(--vdx-color-text-primary)'
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -330,14 +330,14 @@ export function Header() {
                   fontWeight: 600,
                   padding: '2px 7px',
                   borderRadius: '12px',
-                  background: isDbConnected ? '#ecfdf5' : '#fffbeb',
-                  color: isDbConnected ? '#065f46' : '#92400e'
+                  background: isDbConnected ? 'var(--vdx-color-status-success-bg)' : 'var(--vdx-color-status-warning-bg)',
+                  color: isDbConnected ? 'var(--vdx-color-status-success-text)' : 'var(--vdx-color-status-warning-text)'
                 }}>
                   {isDbConnected ? 'Connected' : 'Offline'}
                 </span>
               </div>
 
-              <div style={{ color: '#64748b', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '12px' }}>
+              <div style={{ color: 'var(--vdx-color-text-secondary)', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '12px' }}>
                 <div><strong>Cluster:</strong> <code>cluster0.8kh4syh.mongodb.net</code></div>
                 <div><strong>Database:</strong> <code>{dbInfo?.database || 'veridex_finance'}</code></div>
                 <div><strong>Collections:</strong> {dbInfo?.collectionsCount || 6} (Accounts, JEs, Periods, Users, AR/AP, Bank)</div>
@@ -352,9 +352,9 @@ export function Header() {
                     fontSize: '11px',
                     fontWeight: 600,
                     borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    background: '#f8fafc',
-                    color: '#334155',
+                    border: '1px solid var(--vdx-color-border-default)',
+                    background: 'var(--vdx-color-bg-canvas)',
+                    color: 'var(--vdx-color-text-primary)',
                     cursor: 'pointer'
                   }}
                   onClick={async () => {
@@ -375,7 +375,7 @@ export function Header() {
                     fontWeight: 600,
                     borderRadius: '6px',
                     border: 'none',
-                    background: '#0284c7',
+                    background: 'var(--vdx-primitive-blue-600)',
                     color: '#ffffff',
                     cursor: isSeeding ? 'wait' : 'pointer'
                   }}
@@ -408,9 +408,9 @@ export function Header() {
                   fontSize: '11px',
                   fontWeight: 600,
                   borderRadius: '6px',
-                  border: '1px solid rgba(220, 38, 38, 0.35)',
-                  background: 'rgba(220, 38, 38, 0.06)',
-                  color: '#dc2626',
+                  border: '1px solid var(--vdx-primitive-red-200)',
+                  background: 'var(--vdx-color-status-error-bg)',
+                  color: 'var(--vdx-color-action-destructive)',
                   cursor: isResetting ? 'wait' : 'pointer'
                 }}
                 onClick={() => { setIsDbMenuOpen(false); setIsResetConfirmOpen(true); }}
@@ -824,9 +824,9 @@ export function Header() {
                     height: '24px',
                     borderRadius: '50%',
                     border: currentTheme === 'default' ? '2px solid #fff' : 'none',
-                    outline: currentTheme === 'default' ? '2px solid #F97316' : 'none',
+                    outline: currentTheme === 'default' ? '2px solid var(--vdx-color-action-primary)' : 'none',
                     cursor: 'pointer',
-                    background: '#F97316'
+                    background: 'var(--vdx-color-action-primary)'
                   }}
                   onClick={() => changeTheme('default')}
                   title="Default Orange"
@@ -908,7 +908,7 @@ export function Header() {
         style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
+          background: 'var(--vdx-color-bg-overlay)',
           zIndex: 2000,
           display: 'flex',
           alignItems: 'center',
@@ -921,29 +921,29 @@ export function Header() {
             width: '440px',
             maxWidth: '94vw',
             padding: '24px',
-            background: '#fff',
+            background: 'var(--vdx-color-bg-surface)',
             borderRadius: '12px',
-            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.25)'
+            boxShadow: 'var(--vdx-shadow-xl)'
           }}
         >
-          <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '12px' }}>
+          <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--vdx-color-text-primary)', marginBottom: '12px' }}>
             🗑 Reset Data
           </div>
-          <p style={{ fontSize: '13px', color: '#475569', marginBottom: '20px', lineHeight: 1.6 }}>
+          <p style={{ fontSize: '13px', color: 'var(--vdx-color-text-secondary)', marginBottom: '20px', lineHeight: 1.6 }}>
             Reset Data will permanently delete all Journal Entries, Periods, Bank Transactions, AR/AP Invoices, and Policy Admin (PAS) injected events from MongoDB Atlas, and zero out every account balance. The Chart of Accounts itself (including any custom accounts you've added) and login credentials are kept. <strong>This cannot be undone.</strong> Continue?
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <button
               type="button"
               onClick={() => setIsResetConfirmOpen(false)}
-              style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: 600, borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', cursor: 'pointer' }}
+              style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: 600, borderRadius: '6px', border: '1px solid var(--vdx-color-border-default)', background: 'var(--vdx-color-bg-surface)', color: 'var(--vdx-color-text-primary)', cursor: 'pointer' }}
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleConfirmResetData}
-              style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: 600, borderRadius: '6px', border: '1px solid #dc2626', background: '#dc2626', color: '#fff', cursor: 'pointer' }}
+              style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: 600, borderRadius: '6px', border: '1px solid var(--vdx-color-action-destructive)', background: 'var(--vdx-color-action-destructive)', color: '#fff', cursor: 'pointer' }}
             >
               🗑 Reset Data
             </button>

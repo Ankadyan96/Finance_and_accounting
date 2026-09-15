@@ -1,7 +1,7 @@
 /* Commission Engine Styles matching commission-engine.html */
 .v-tree-row:hover {
   background: var(--gray-50, #f8fafc);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .comm-modal {
@@ -23,13 +23,13 @@
 }
 
 .comm-modal-content {
-  background: #fff;
-  border-radius: 12px;
+  background: var(--color-panel);
+  border-radius: var(--radius-lg);
   width: 90%;
   max-width: 740px;
   max-height: 90%;
   overflow-y: auto;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-lg);
   border: 1px solid var(--color-border, #e2e8f0);
   padding: 24px;
 }

@@ -11,7 +11,7 @@
   display: flex;
   gap: 2px;
   background: var(--gray-100, #F3F4F6);
-  border-radius: 7px;
+  border-radius: var(--radius);
   padding: 3px;
   margin-bottom: 18px;
   width: fit-content;
@@ -21,7 +21,7 @@
   padding: 6px 16px;
   font-size: 12px;
   font-weight: 600;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--gray-500, #6B7280);
   border: none;
@@ -34,9 +34,9 @@
 }
 
 .sub-tab.active {
-  background: #fff;
+  background: var(--color-panel);
   color: var(--navy, #1A1D23);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
+  box-shadow: var(--shadow-sm);
 }
 
 /* KPI Strip 5 */
@@ -54,9 +54,9 @@
 }
 
 .kpi-tile {
-  background: #fff;
+  background: var(--color-panel);
   border: 1.5px solid var(--border, #E2E5EA);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   padding: 14px 16px;
 }
 
@@ -81,11 +81,11 @@
 }
 
 .kpi-tile-sub.up {
-  color: #2e7d32;
+  color: var(--color-success);
 }
 
 .kpi-tile-sub.warn {
-  color: #e65100;
+  color: var(--color-warning);
 }
 
 /* Pipeline */
@@ -95,7 +95,7 @@
   gap: 0;
   margin-bottom: 20px;
   border: 1.5px solid var(--border, #E2E5EA);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -104,7 +104,7 @@
   padding: 14px 12px;
   text-align: center;
   position: relative;
-  background: #fff;
+  background: var(--color-panel);
 }
 
 .pipe-step + .pipe-step::before {
@@ -140,22 +140,22 @@
 }
 
 .pipe-step.active-pipe {
-  background: #f0f4ff;
+  background: var(--color-info-bg);
 }
 
 .pipe-step.done-pipe {
-  background: #f0faf3;
+  background: var(--color-success-bg);
 }
 
 .pipe-step.warn-pipe {
-  background: #fff8f0;
+  background: var(--color-warning-bg);
 }
 
 /* Table Wrappers */
 .tbl-wrap {
-  background: #ffffff;
+  background: var(--color-panel);
   border: 1.5px solid var(--border, #E2E5EA);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   margin-bottom: 20px;
 }
@@ -165,7 +165,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: #f8f9fb;
+  background: var(--color-surface);
   border-bottom: 1.5px solid var(--border, #E2E5EA);
 }
 
@@ -181,7 +181,7 @@
 }
 
 .tbl-wrap th {
-  background: #f8f9fb;
+  background: var(--color-surface);
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
@@ -205,7 +205,7 @@
 }
 
 .tbl-wrap tr:hover td {
-  background: #fafbff;
+  background: var(--color-brand-light);
 }
 
 /* Status Chips */
@@ -213,29 +213,29 @@
   display: inline-block;
   font-size: 10px;
   font-weight: 700;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 2px 8px;
   text-transform: uppercase;
 }
 
 .chip-green {
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .chip-blue {
-  background: #e3f2fd;
-  color: #1565c0;
+  background: var(--color-info-bg);
+  color: var(--color-info);
 }
 
 .chip-orange {
-  background: #fff3e0;
-  color: #e65100;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .chip-red {
-  background: #ffebee;
-  color: #c62828;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .chip-purple {
@@ -258,9 +258,9 @@
 }
 
 .donut-wrap {
-  background: #fff;
+  background: var(--color-panel);
   border: 1.5px solid var(--border, #E2E5EA);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   padding: 16px;
   text-align: center;
 }
@@ -302,7 +302,7 @@
   width: 440px;
   max-width: 94vw;
   padding: 24px;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  background: var(--color-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
 }

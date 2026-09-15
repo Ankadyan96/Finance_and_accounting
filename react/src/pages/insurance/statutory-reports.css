@@ -15,8 +15,8 @@
   font-size: 11.5px;
   font-weight: 600;
   border: 1.5px solid var(--color-border);
-  border-radius: 6px;
-  background: #fff;
+  border-radius: var(--radius, 6px);
+  background: var(--color-panel, #fff);
   color: var(--color-muted);
   cursor: pointer;
   white-space: nowrap;
@@ -37,17 +37,17 @@
 }
 
 .sr-stat {
-  background: #fff;
+  background: var(--color-panel, #fff);
   border: 1.5px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg, 10px);
   padding: 15px 18px;
   border-top: 3px solid var(--color-border);
   min-width: 0;
 }
-.sr-stat.c-navy { border-top-color: #0d1b4b; }
-.sr-stat.c-green { border-top-color: #2e7d32; }
-.sr-stat.c-blue { border-top-color: #1565c0; }
-.sr-stat.c-coral { border-top-color: #f97316; }
+.sr-stat.c-navy { border-top-color: var(--color-ink, #0d1b4b); }
+.sr-stat.c-green { border-top-color: var(--color-success, #2e7d32); }
+.sr-stat.c-blue { border-top-color: var(--color-info, #1565c0); }
+.sr-stat.c-coral { border-top-color: var(--color-brand, #f97316); }
 
 .sr-stat-label {
   font-size: 10.5px;
@@ -64,21 +64,21 @@
   margin: 4px 0 2px;
   overflow-wrap: break-word;
 }
-.sr-stat.c-green .sr-stat-value { color: #2e7d32; }
-.sr-stat.c-blue .sr-stat-value { color: #1565c0; }
+.sr-stat.c-green .sr-stat-value { color: var(--color-success, #2e7d32); }
+.sr-stat.c-blue .sr-stat-value { color: var(--color-info, #1565c0); }
 
 .sr-stat-note { font-size: 11px; color: var(--color-muted); }
-.sr-stat.c-green .sr-stat-note { color: #2e7d32; }
-.sr-stat.c-blue .sr-stat-note { color: #1565c0; }
+.sr-stat.c-green .sr-stat-note { color: var(--color-success, #2e7d32); }
+.sr-stat.c-blue .sr-stat-note { color: var(--color-info, #1565c0); }
 
 /* Tab strip — keeps the boxed / pill look from the mock, but scrolls
    horizontally instead of squeezing every label into a sliver once the
    four tabs no longer fit their equal-width share. */
 .sr-tabs {
   display: flex;
-  background: #fff;
+  background: var(--color-panel, #fff);
   border: 1.5px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg, 10px);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   margin-bottom: 20px;
@@ -92,7 +92,7 @@
   font-weight: 600;
   border: none;
   cursor: pointer;
-  background: #fff;
+  background: var(--color-panel, #fff);
   color: var(--color-muted);
   border-right: 1px solid var(--color-border);
   border-radius: 0;
@@ -106,15 +106,15 @@
 
 /* Panel */
 .sr-panel {
-  background: #fff;
+  background: var(--color-panel, #fff);
   border: 1.5px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg, 10px);
   overflow: hidden;
 }
 
 .sr-panel-hdr {
   padding: 13px 18px;
-  background: #f8f9fb;
+  background: var(--color-surface, #f8f9fb);
   border-bottom: 1.5px solid var(--color-border);
   display: flex;
   flex-wrap: wrap;

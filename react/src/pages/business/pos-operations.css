@@ -30,8 +30,8 @@
 .pos-badge-icon {
   width: 42px;
   height: 42px;
-  border-radius: 9px;
-  background: #fff7ed;
+  border-radius: var(--radius);
+  background: var(--color-brand-light);
   border: 1px solid #fed7aa;
   display: flex;
   align-items: center;
@@ -65,9 +65,9 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 20px;
-  background: #fff7ed;
+  background: var(--color-brand-light);
   border: 1px solid #fed7aa;
-  color: #ea580c;
+  color: var(--color-brand-dark);
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.2px;
@@ -82,21 +82,21 @@
 }
 
 .pos-kpi-card {
-  background: #ffffff;
+  background: var(--color-panel);
   border: 1px solid var(--gray-200, #e2e8f0);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .pos-kpi-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow);
 }
 
 .pos-kpi-card::before {
@@ -150,7 +150,7 @@
   color: var(--gray-500, #64748b);
   font-size: 13px;
   font-weight: 700;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -164,8 +164,8 @@
 }
 
 .pos-tab-btn.active {
-  color: #ffffff;
-  background: #ea580c;
+  color: var(--color-panel);
+  background: var(--color-brand-dark);
 }
 
 .pos-tab-badge {
@@ -179,14 +179,14 @@
 
 .pos-tab-btn.active .pos-tab-badge {
   background: rgba(255, 255, 255, 0.25);
-  color: #ffffff;
+  color: var(--color-panel);
 }
 
 /* Presets Bar */
 .pos-preset-bar {
-  background: #fff7ed;
+  background: var(--color-brand-light);
   border: 1.5px solid #fed7aa;
-  border-radius: 9px;
+  border-radius: var(--radius);
   padding: 10px 16px;
   margin-bottom: 16px;
   display: flex;
@@ -207,7 +207,7 @@
 .pos-preset-label {
   font-size: 11px;
   font-weight: 800;
-  color: #c2410c;
+  color: var(--color-brand-dark);
   text-transform: uppercase;
   letter-spacing: 0.6px;
   white-space: nowrap;
@@ -215,20 +215,20 @@
 
 .pos-preset-select {
   flex: 1;
-  background: #ffffff;
+  background: var(--color-panel);
   border: 1px solid #fdba74;
-  border-radius: 6px;
-  color: #0f172a;
+  border-radius: var(--radius);
+  color: var(--color-ink);
   padding: 7px 11px;
   font-size: 12.5px;
   font-weight: 600;
   outline: none;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-sm);
 }
 
 .pos-preset-select:focus {
-  border-color: #ea580c;
+  border-color: var(--color-brand-dark);
   box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.2);
 }
 
@@ -250,11 +250,11 @@
 
 /* Standard White Cards */
 .pos-card {
-  background: #ffffff;
+  background: var(--color-panel);
   border: 1.5px solid var(--gray-200, #e2e8f0);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 18px 20px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-sm);
   margin-bottom: 18px;
   display: flex;
   flex-direction: column;
@@ -303,9 +303,9 @@
 }
 
 .pos-input, .pos-select {
-  background: #ffffff;
+  background: var(--color-panel);
   border: 1px solid var(--gray-300, #cbd5e1);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--navy, #0d1b4b);
   padding: 7px 11px;
   font-size: 13px;
@@ -318,15 +318,15 @@
 }
 
 .pos-input:focus, .pos-select:focus {
-  border-color: #ea580c;
+  border-color: var(--color-brand-dark);
   box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.15);
 }
 
 /* Revenue Split Box */
 .pos-split-box {
-  background: #fffaf0;
+  background: var(--color-brand-light);
   border: 1px solid #fed7aa;
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 12px 16px;
   margin-bottom: 16px;
 }
@@ -334,14 +334,14 @@
 .pos-split-bar {
   display: flex;
   height: 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   margin: 8px 0 10px 0;
-  background: #e2e8f0;
+  background: var(--color-surface);
 }
 
 .pos-split-frn {
-  background: #ea580c;
+  background: var(--color-brand-dark);
   transition: width 0.3s ease;
 }
 
@@ -354,7 +354,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 11.5px;
-  color: #64748b;
+  color: var(--color-muted);
 }
 
 /* JSON Code Box */
@@ -446,7 +446,7 @@
   border: none;
   border-radius: 8px;
   background: linear-gradient(135deg, #ea580c, #c2410c);
-  color: #ffffff;
+  color: var(--color-panel);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -477,7 +477,7 @@
 /* Audit Table */
 .pos-table-wrap {
   overflow-x: auto;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--gray-200, #e2e8f0);
 }
 
@@ -515,30 +515,30 @@
   align-items: center;
   gap: 4px;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
 }
 
 .pos-badge.posted {
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .pos-badge.settled {
-  background: #e3f2fd;
-  color: #1565c0;
+  background: var(--color-info-bg);
+  color: var(--color-info);
 }
 
 .pos-badge.pending {
-  background: #fff3e0;
-  color: #e65100;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .pos-badge.refunded {
-  background: #ffebee;
-  color: #c62828;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 /* Flow Simulator Pipeline */
@@ -554,23 +554,23 @@
 .pos-flow-step {
   flex: 1;
   min-width: 220px;
-  background: #ffffff;
+  background: var(--color-panel);
   border: 1.5px solid var(--gray-200, #e2e8f0);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 18px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-sm);
 }
 
 .pos-flow-step.active {
   border-color: #fdba74;
-  background: #fffaf0;
+  background: var(--color-brand-light);
 }
 
 .pos-flow-arrow {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #ea580c;
+  color: var(--color-brand-dark);
   font-size: 22px;
   font-weight: 800;
 }
